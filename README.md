@@ -1,50 +1,67 @@
-# Building a Remote MCP Server on Cloudflare (Without Auth)
+# Using the CIViC Cancer Variants MCP Server with Claude Desktop
 
-This example allows you to deploy a remote MCP server that doesn't require authentication on Cloudflare Workers. 
+This guide explains how to connect the CIViC (Clinical Interpretation of Variants in Cancer) MCP Server to your Claude Desktop application. This will allow you to ask Claude questions about cancer genes, variants, and related evidence, with Claude retrieving answers directly from the CIViC open-access database.
 
-## Get started: 
+## What is this?
 
-[![Deploy to Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-authless)
+*   **CIViC Database:** A publicly accessible database that stores information about the clinical relevance of cancer gene mutations. Scientists and researchers contribute to and curate this information.
+*   **MCP Server:** A piece of software that acts as a bridge, allowing Claude to "talk" to the CIViC database using a special language (GraphQL). This specific server is named "CivicExplorer".
+*   **Claude Desktop:** The application on your computer where you interact with Claude.
 
-This will deploy your MCP server to a URL like: `remote-mcp-server-authless.<your-account>.workers.dev/sse`
+By connecting this MCP server, you empower Claude to access and use the specialized knowledge within CIViC to answer your research-related questions.
 
-Alternatively, you can use the command line below to get the remote MCP Server created on your local machine:
-```bash
-npm create cloudflare@latest -- my-mcp-server --template=cloudflare/ai/demos/remote-mcp-authless
-```
+## Prerequisites
 
-## Customizing your MCP Server
+*   You have Claude Desktop installed on your computer.
 
-To add your own [tools](https://developers.cloudflare.com/agents/model-context-protocol/tools/) to the MCP server, define each tool inside the `init()` method of `src/index.ts` using `this.server.tool(...)`. 
+## Connecting to Claude Desktop
 
-## Connect to Cloudflare AI Playground
+To enable Claude to use the CIViC database, you need to tell Claude Desktop how to find this server. You'll do this by editing a configuration file.
 
-You can connect to your MCP server from the Cloudflare AI Playground, which is a remote MCP client:
+1.  **Open Claude Desktop Settings:**
+    *   In Claude Desktop, go to `Settings`.
+    *   Navigate to the `Developer` section.
+    *   Click on `Edit Config`. This will open a text file (usually named `claude_desktop_config.json`).
 
-1. Go to https://playground.ai.cloudflare.com/
-2. Enter your deployed MCP server URL (`remote-mcp-server-authless.<your-account>.workers.dev/sse`)
-3. You can now use your MCP tools directly from the playground!
+2.  **Update the Configuration:**
+    You need to add an entry for the CIViC MCP Server. If the file already has a section called `"mcpServers"`, you'll add the CIViC server details there. If not, you might need to add the whole `"mcpServers"` block.
 
-## Connect Claude Desktop to your MCP server
+    Copy and paste the following configuration into the `"mcpServers"` section of your `claude_desktop_config.json` file:
 
-You can also connect to your remote MCP server from local MCP clients, by using the [mcp-remote proxy](https://www.npmjs.com/package/mcp-remote). 
-
-To connect to your MCP server from Claude Desktop, follow [Anthropic's Quickstart](https://modelcontextprotocol.io/quickstart/user) and within Claude Desktop go to Settings > Developer > Edit Config.
-
-Update with this configuration:
-
-```json
-{
-  "mcpServers": {
-    "calculator": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "http://localhost:8787/sse"  // or remote-mcp-server-authless.your-account.workers.dev/sse
-      ]
+    ```json
+    {
+      "mcpServers": {
+        // ... (other servers might already be listed here, add a comma if needed)
+        "civic-mcp-server": {
+          "command": "npx",
+          "args": [
+            "mcp-remote",
+            "https://civic-mcp-server.quentincody.workers.dev/sse"
+          ]
+        }
+        // ... (if adding at the end of other servers, ensure no trailing comma on the last one)
+      }
     }
-  }
-}
-```
+    ```
 
-Restart Claude and you should see the tools become available. 
+    *   **Explanation of the configuration:**
+        *   `"civic-mcp-server"`: This is just a friendly name you're giving this connection within Claude Desktop.
+        *   `"command": "npx"` and `"args": [...]`: These tell Claude Desktop the technical details of how to communicate with the CIViC server using a helper tool (`mcp-remote`) and the server's web address.
+
+3.  **Save and Restart:**
+    *   Save the `claude_desktop_config.json` file.
+    *   Restart Claude Desktop completely for the changes to take effect.
+
+## How to Use
+
+Once connected, Claude will automatically try to use the CIViC MCP Server when you ask questions related to cancer genomics, variants, genes, evidence items, or clinical interpretations.
+
+For example, you can ask Claude questions like:
+
+*   "What information does CIViC have on the BRAF V600E mutation?"
+*   "Show me evidence items related to gene EGFR in lung cancer."
+*   "Are there any clinical assertions for KRAS G12C?"
+
+Claude will use the server (and its `civic_graphql_query` tool) to fetch the relevant data from the CIViC database and present it to you. The server is designed to query version 2 of the CIViC API, ensuring you get up-to-date information.
+
+If you encounter issues or Claude doesn't seem to be using the CIViC data, double-check the configuration steps above.
