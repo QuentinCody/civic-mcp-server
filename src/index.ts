@@ -1,176 +1,230 @@
-import { McpAgent } from "agents/mcp"; // Assuming McpAgent is available via this path as per the example.
-                                        // This might be a project-local base class or an alias to an SDK import.
+import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { JsonToSqlDO } from "./do.js";
 
-// Define our CIViC MCP agent
-export class CivicMCP extends McpAgent {
-	// The McpServer instance. The example initializes it as a property.
-	// We assume the McpAgent base class or McpServer itself handles the
-	// asynchronous initialization flow (calling this.init()) when using
-	// the static MyAgent.serveSSE(...).fetch(...) pattern.
-	server = new McpServer({
-		name: "CivicExplorer",
-		version: "0.1.0",
-		description: "MCP Server for querying the CIViC GraphQL API (V2). CIViC is an open access, open source, community-driven web resource for Clinical Interpretation of Variants in Cancer."
-	});
-
-	// CIViC API Configuration
-	private readonly CIVIC_GRAPHQL_ENDPOINT = 'https://civicdb.org/api/graphql';
-	private readonly CIVIC_API_VERSION_HEADER = 'application/vnd.civicdb.v2+json'; // Required for CIViC API V2
-
-	async init() {
-		console.error("CivicMCP Server initializing...");
-
-		// Register the GraphQL execution tool
-		this.server.tool(
-			"civic_graphql_query",
-			// Tool description (max 1024 chars for this string)
-			`Executes GraphQL queries against CIViC API (V2: ${this.CIVIC_GRAPHQL_ENDPOINT}) for Clinical Interpretations of Variants in Cancer. Query genes, variants, evidence, assertions, etc. Example (gene V2): '{ gene(id: 12) { id name evidenceItems { totalCount } } }'. Example (variants V2 w/ pagination): '{ variants(first: 5) { edges { node { id name } } pageInfo { endCursor hasNextPage } } }'. IMPORTANT: Always use V2! Before ANY query, ALWAYS run introspection ('{ __schema { ... } }', '{ __type(name: "Gene") { ... } }') to confirm target fields/ops exist in the V2 schema. If errors, re-check syntax & re-introspect for V2. Use small page counts (e.g., first: 5) initially. For more data, use cursors from 'pageInfo'. API docs (schema at endpoint).`,
-			{ // Input schema
-				query: z.string().describe(
-					`The GraphQL query string for CIViC API V2 (${this.CIVIC_GRAPHQL_ENDPOINT}). Example: '{ gene(id: 12) { id name } }'. Use introspection for V2 schema: '{ __schema { queryType { name } types { name kind } } }'.`
-				),
-				variables: z.record(z.any()).optional().describe(
-					"Optional dictionary of variables for the GraphQL query. Example: { \"geneId\": 12 }"
-				),
-			},
-			// Tool execution function. Return type is inferred based on McpServer.tool expectations.
-			async ({ query, variables }: { query: string; variables?: Record<string, any> }) => {
-				console.error(`Executing civic_graphql_query with query: ${query.slice(0, 200)}...`);
-				if (variables) {
-					console.error(`With variables: ${JSON.stringify(variables).slice(0,150)}...`);
-				}
-				
-				const result = await this.executeCivicGraphQLQuery(query, variables);
-				
-				return { 
-					content: [{ 
-						type: "text", 
-						text: JSON.stringify(result, null, 2) 
-					}]
-				};
-			}
-		);
-		console.error("CivicMCP Server initialized and tool registered.");
-	}
-
-	// Helper function to execute CIViC GraphQL queries (V2)
-	private async executeCivicGraphQLQuery(query: string, variables?: Record<string, any>): Promise<any> {
-		try {
-			const headers: Record<string, string> = {
-				"Content-Type": "application/json",
-				"Accept": this.CIVIC_API_VERSION_HEADER, // Crucial for CIViC API V2
-				"User-Agent": "MCPCivicServer/0.1.0 (ModelContextProtocol; +https://modelcontextprotocol.io)"
-			};
-			
-			const bodyData: Record<string, any> = { query };
-			if (variables) {
-				bodyData.variables = variables;
-			}
-			
-			console.error(`Making GraphQL request to: ${this.CIVIC_GRAPHQL_ENDPOINT} for V2`);
-
-			const response = await fetch(this.CIVIC_GRAPHQL_ENDPOINT, {
-				method: 'POST',
-				headers,
-				body: JSON.stringify(bodyData),
-			});
-			
-			console.error(`CIViC API response status: ${response.status}`);
-			
-			let responseBody;
-			try {
-				responseBody = await response.json();
-			} catch (e) {
-				const errorText = await response.text();
-				console.error(`CIViC API response is not JSON. Status: ${response.status}, Body: ${errorText.slice(0,500)}`);
-				return {
-					errors: [{
-						message: `CIViC API Error ${response.status}: Non-JSON response. Ensure you are using the correct V2 schema and queries.`,
-						extensions: {
-							statusCode: response.status,
-							responseText: errorText.slice(0, 1000) 
-						}
-					}]
-				};
-			}
-
-			if (!response.ok) {
-				console.error(`CIViC API HTTP Error ${response.status}: ${JSON.stringify(responseBody)}`);
-				// responseBody may contain GraphQL errors, include it for context.
-				return {
-					errors: [{ 
-						message: `CIViC API HTTP Error ${response.status}. Check query syntax against V2 schema via introspection. The server returned the following body:`,
-						extensions: {
-							statusCode: response.status,
-							responseBody: responseBody 
-						}
-					}]
-				};
-			}
-			
-			// If response.ok, responseBody contains the GraphQL payload (which might include data and/or errors)
-			return responseBody;
-
-		} catch (error) {
-			console.error(`Client-side error during CIViC GraphQL request: ${error instanceof Error ? error.message : String(error)}`);
-			let errorMessage = "An unexpected client-side error occurred while attempting to query the CIViC GraphQL API.";
-			if (error instanceof Error) {
-					errorMessage = error.message;
-			} else {
-					errorMessage = String(error);
-			}
-			return { 
-				errors: [{ 
-					message: errorMessage,
-                    extensions: {
-                        clientError: true 
-                    }
-				}]
-			};
+// ========================================
+// API CONFIGURATION - Customize for your GraphQL API
+// ========================================
+const API_CONFIG = {
+	name: "CivicExplorer",
+	version: "0.1.0",
+	description: "MCP Server for querying GraphQL APIs and converting responses to queryable SQLite tables",
+	
+	// GraphQL API settings
+	endpoint: 'https://civicdb.org/api/graphql',
+	headers: {
+		"Accept": 'application/vnd.civicdb.v2+json', // API-specific version header
+		"User-Agent": "MCPCivicServer/0.1.0"
+	},
+	
+	// Tool names and descriptions
+	tools: {
+		graphql: {
+			name: "civic_graphql_query",
+			description: "Executes GraphQL queries against CIViC API (V2), processes responses into SQLite tables, and returns metadata for subsequent SQL querying. Returns a data_access_id and schema information."
+		},
+		sql: {
+			name: "civic_query_sql", 
+			description: "Execute read-only SQL queries against staged data. Use the data_access_id from civic_graphql_query to query the SQLite tables."
 		}
 	}
+};
+
+// ========================================
+// CORE MCP SERVER CLASS - Reusable template
+// ========================================
+
+// Environment storage for tool access
+let currentEnvironment: Env | null = null;
+
+function setGlobalEnvironment(env: Env) {
+	currentEnvironment = env;
 }
 
-// Define the Env interface for environment variables, matching example.
+function getGlobalEnvironment(): Env | null {
+	return currentEnvironment;
+}
+
+export class CivicMCP extends McpAgent {
+	server = new McpServer({
+		name: API_CONFIG.name,
+		version: API_CONFIG.version,
+		description: API_CONFIG.description
+	});
+
+	async init() {
+		// Tool #1: GraphQL to SQLite staging
+		this.server.tool(
+			API_CONFIG.tools.graphql.name,
+			API_CONFIG.tools.graphql.description,
+			{
+				query: z.string().describe("GraphQL query string"),
+				variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
+			},
+			async ({ query, variables }) => {
+				try {
+					const graphqlResult = await this.executeGraphQLQuery(query, variables);
+					
+					if (graphqlResult.errors && !graphqlResult.data) {
+						return { content: [{ type: "text" as const, text: JSON.stringify(graphqlResult, null, 2) }] };
+					}
+					
+					const stagingResult = await this.stageDataInDurableObject(graphqlResult);
+					return { content: [{ type: "text" as const, text: JSON.stringify(stagingResult, null, 2) }] };
+					
+				} catch (error) {
+					return this.createErrorResponse("GraphQL execution failed", error);
+				}
+			}
+		);
+
+		// Tool #2: SQL querying against staged data
+		this.server.tool(
+			API_CONFIG.tools.sql.name,
+			API_CONFIG.tools.sql.description,
+			{
+				data_access_id: z.string().describe("Data access ID from the GraphQL query tool"),
+				sql: z.string().describe("SQL SELECT query to execute"),
+				params: z.array(z.string()).optional().describe("Optional query parameters"),
+			},
+			async ({ data_access_id, sql }) => {
+				try {
+					const queryResult = await this.executeSQLQuery(data_access_id, sql);
+					return { content: [{ type: "text" as const, text: JSON.stringify(queryResult, null, 2) }] };
+				} catch (error) {
+					return this.createErrorResponse("SQL execution failed", error);
+				}
+			}
+		);
+	}
+
+	// ========================================
+	// GRAPHQL CLIENT - Customize headers/auth as needed
+	// ========================================
+	private async executeGraphQLQuery(query: string, variables?: Record<string, any>): Promise<any> {
+		const headers = {
+			"Content-Type": "application/json",
+			...API_CONFIG.headers
+		};
+		
+		const body = { query, ...(variables && { variables }) };
+		
+		const response = await fetch(API_CONFIG.endpoint, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify(body),
+		});
+		
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`HTTP ${response.status}: ${errorText}`);
+		}
+		
+		return await response.json();
+	}
+
+	// ========================================
+	// DURABLE OBJECT INTEGRATION - Reusable
+	// ========================================
+	private async stageDataInDurableObject(graphqlResult: any): Promise<any> {
+		const env = getGlobalEnvironment();
+		if (!env?.JSON_TO_SQL_DO) {
+			throw new Error("JSON_TO_SQL_DO binding not available");
+		}
+		
+		const accessId = crypto.randomUUID();
+		const doId = env.JSON_TO_SQL_DO.idFromName(accessId);
+		const stub = env.JSON_TO_SQL_DO.get(doId);
+		
+		const response = await stub.fetch("http://do/process", {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(graphqlResult)
+		});
+		
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`DO staging failed: ${errorText}`);
+		}
+		
+		const processingResult = await response.json();
+		return {
+			data_access_id: accessId,
+			processing_details: processingResult
+		};
+	}
+
+	private async executeSQLQuery(dataAccessId: string, sql: string): Promise<any> {
+		const env = getGlobalEnvironment();
+		if (!env?.JSON_TO_SQL_DO) {
+			throw new Error("JSON_TO_SQL_DO binding not available");
+		}
+		
+		const doId = env.JSON_TO_SQL_DO.idFromName(dataAccessId);
+		const stub = env.JSON_TO_SQL_DO.get(doId);
+		
+		const response = await stub.fetch("http://do/query", {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ sql })
+		});
+		
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`SQL execution failed: ${errorText}`);
+		}
+		
+		return await response.json();
+	}
+
+	// ========================================
+	// ERROR HANDLING - Reusable
+	// ========================================
+	private createErrorResponse(message: string, error: unknown) {
+		return {
+			content: [{
+				type: "text" as const,
+				text: JSON.stringify({
+					success: false,
+					error: message,
+					details: error instanceof Error ? error.message : String(error)
+				}, null, 2)
+			}]
+		};
+	}
+}
+
+// ========================================
+// CLOUDFLARE WORKERS BOILERPLATE - Reusable
+// ========================================
 interface Env {
-	MCP_HOST?: string; // Standard MCP env var
-	MCP_PORT?: string; // Standard MCP env var
+	MCP_HOST?: string;
+	MCP_PORT?: string;
+	JSON_TO_SQL_DO: DurableObjectNamespace;
 }
 
-// Dummy ExecutionContext for type compatibility, matching example.
 interface ExecutionContext {
 	waitUntil(promise: Promise<any>): void;
 	passThroughOnException(): void;
 }
 
-// Export the fetch handler, standard for environments like Cloudflare Workers or Deno Deploy.
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+		setGlobalEnvironment(env);
 
-		// SSE transport is primary
 		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-			// @ts-ignore - This is used in the example, presumably to handle potential slight
-            // mismatches between the generic `fetch` signature expected by some runtimes
-            // and the specific signature of the `fetch` method returned by `serveSSE`.
-            // This pattern relies on `CivicMCP` (or its base `McpAgent`) having a static `serveSSE` method.
+			// @ts-ignore - SSE transport handling
 			return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
 		}
 		
-		// Fallback for unhandled paths
-		console.error(`CivicMCP Server. Requested path ${url.pathname} not found. Listening for SSE on /sse.`);
-		
 		return new Response(
-			`CivicMCP Server - Path not found.\nAvailable MCP paths:\n- /sse (for Server-Sent Events transport)`, 
-			{ 
-				status: 404,
-				headers: { "Content-Type": "text/plain" }
-			}
+			`${API_CONFIG.name} - Available on /sse endpoint`, 
+			{ status: 404, headers: { "Content-Type": "text/plain" } }
 		);
 	},
 };
 
-// Export the agent class as MyMCP, matching the example's export style.
 export { CivicMCP as MyMCP };
+export { JsonToSqlDO };
