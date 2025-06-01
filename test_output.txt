@@ -1,0 +1,21 @@
+(node:23043) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/quentincody/civic-mcp-server/test_mcp.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/quentincody/civic-mcp-server/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+🧪 Testing CIViC MCP Server...
+
+📡 Connecting to MCP server...
+✅ Connected successfully!
+
+🔧 Available tools:
+  - civic_graphql_query: Executes GraphQL queries against CIViC API (V2), processes responses into SQLite tables, and returns...
+  - civic_query_sql: Execute read-only SQL queries against staged data. Use the data_access_id from civic_graphql_query t...
+
+🧬 Testing Tool #1 (civic_graphql_query) with introspection query...
+📊 Tool #1 Result:
+  - Success: true
+  - Data Access ID: N/A
+
+⏭️ Skipping Tool #2 test (Tool #1 failed or no data access ID)
+
+🎉 Test completed!
