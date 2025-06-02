@@ -32,19 +32,17 @@ const API_CONFIG = {
 };
 
 // ========================================
+// ENVIRONMENT INTERFACE
+// ========================================
+interface CivicEnv {
+	MCP_HOST?: string;
+	MCP_PORT?: string;
+	JSON_TO_SQL_DO: DurableObjectNamespace;
+}
+
+// ========================================
 // CORE MCP SERVER CLASS - Reusable template
 // ========================================
-
-// Environment storage for tool access
-let currentEnvironment: Env | null = null;
-
-function setGlobalEnvironment(env: Env) {
-	currentEnvironment = env;
-}
-
-function getGlobalEnvironment(): Env | null {
-	return currentEnvironment;
-}
 
 export class CivicMCP extends McpAgent {
 	server = new McpServer({
@@ -125,10 +123,10 @@ export class CivicMCP extends McpAgent {
 	}
 
 	// ========================================
-	// DURABLE OBJECT INTEGRATION - Reusable
+	// DURABLE OBJECT INTEGRATION - Use this.env directly
 	// ========================================
 	private async stageDataInDurableObject(graphqlResult: any): Promise<any> {
-		const env = getGlobalEnvironment();
+		const env = this.env as CivicEnv;
 		if (!env?.JSON_TO_SQL_DO) {
 			throw new Error("JSON_TO_SQL_DO binding not available");
 		}
@@ -156,7 +154,7 @@ export class CivicMCP extends McpAgent {
 	}
 
 	private async executeSQLQuery(dataAccessId: string, sql: string): Promise<any> {
-		const env = getGlobalEnvironment();
+		const env = this.env as CivicEnv;
 		if (!env?.JSON_TO_SQL_DO) {
 			throw new Error("JSON_TO_SQL_DO binding not available");
 		}
@@ -196,7 +194,7 @@ export class CivicMCP extends McpAgent {
 }
 
 // ========================================
-// CLOUDFLARE WORKERS BOILERPLATE - Reusable
+// CLOUDFLARE WORKERS BOILERPLATE - Simplified
 // ========================================
 interface Env {
 	MCP_HOST?: string;
@@ -212,7 +210,6 @@ interface ExecutionContext {
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
-		setGlobalEnvironment(env);
 
 		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
 			// @ts-ignore - SSE transport handling
