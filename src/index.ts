@@ -60,22 +60,32 @@ export class CivicMCP extends McpAgent {
 				query: z.string().describe("GraphQL query string"),
 				variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
 			},
-			async ({ query, variables }) => {
-				try {
-					const graphqlResult = await this.executeGraphQLQuery(query, variables);
-					
-					if (graphqlResult.errors && !graphqlResult.data) {
-						return { content: [{ type: "text" as const, text: JSON.stringify(graphqlResult, null, 2) }] };
-					}
-					
-					const stagingResult = await this.stageDataInDurableObject(graphqlResult);
-					return { content: [{ type: "text" as const, text: JSON.stringify(stagingResult, null, 2) }] };
-					
-				} catch (error) {
-					return this.createErrorResponse("GraphQL execution failed", error);
-				}
-			}
-		);
+                        async ({ query, variables }) => {
+                                try {
+                                        const graphqlResult = await this.executeGraphQLQuery(query, variables);
+
+                                        if (this.shouldBypassStaging(graphqlResult)) {
+                                                return {
+                                                        content: [{
+                                                                type: "text" as const,
+                                                                text: JSON.stringify(graphqlResult, null, 2)
+                                                        }]
+                                                };
+                                        }
+
+                                        const stagingResult = await this.stageDataInDurableObject(graphqlResult);
+                                        return {
+                                                content: [{
+                                                        type: "text" as const,
+                                                        text: JSON.stringify(stagingResult, null, 2)
+                                                }]
+                                        };
+
+                                } catch (error) {
+                                        return this.createErrorResponse("GraphQL execution failed", error);
+                                }
+                        }
+                );
 
 		// Tool #2: SQL querying against staged data
 		this.server.tool(
@@ -100,11 +110,11 @@ export class CivicMCP extends McpAgent {
 	// ========================================
 	// GRAPHQL CLIENT - Customize headers/auth as needed
 	// ========================================
-	private async executeGraphQLQuery(query: string, variables?: Record<string, any>): Promise<any> {
-		const headers = {
-			"Content-Type": "application/json",
-			...API_CONFIG.headers
-		};
+        private async executeGraphQLQuery(query: string, variables?: Record<string, any>): Promise<any> {
+                const headers = {
+                        "Content-Type": "application/json",
+                        ...API_CONFIG.headers
+                };
 		
 		const body = { query, ...(variables && { variables }) };
 		
@@ -119,8 +129,40 @@ export class CivicMCP extends McpAgent {
 			throw new Error(`HTTP ${response.status}: ${errorText}`);
 		}
 		
-		return await response.json();
-	}
+                return await response.json();
+        }
+
+        private shouldBypassStaging(result: any): boolean {
+                if (!result) return true;
+
+                // Bypass if GraphQL reported errors
+                if (result.errors) {
+                        return true;
+                }
+
+                // Rough size check to avoid storing very small payloads
+                try {
+                        if (JSON.stringify(result).length < 1500) {
+                                return true;
+                        }
+                } catch {
+                        return true;
+                }
+
+                // Detect mostly empty data objects
+                if (result.data) {
+                        const values = Object.values(result.data);
+                        const hasContent = values.some((v) => {
+                                if (v === null || v === undefined) return false;
+                                if (Array.isArray(v)) return v.length > 0;
+                                if (typeof v === "object") return Object.keys(v).length > 0;
+                                return true;
+                        });
+                        if (!hasContent) return true;
+                }
+
+                return false;
+        }
 
 	// ========================================
 	// DURABLE OBJECT INTEGRATION - Use this.env directly

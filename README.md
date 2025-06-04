@@ -75,3 +75,7 @@ For example, you can ask Claude questions like:
 Claude will use the server (and its `civic_graphql_query` tool) to fetch the relevant data from the CIViC database and present it to you. The server is designed to query version 2 of the CIViC API, ensuring you get up-to-date information.
 
 If you encounter issues or Claude doesn't seem to be using the CIViC data, double-check the configuration steps above.
+
+## Response handling
+
+The server minimizes context usage by storing large results in a temporary SQLite database. When GraphQL responses contain errors or are very small/mostly empty, the raw response is returned instead of creating a database. This makes troubleshooting easier and avoids unnecessary tool calls.
