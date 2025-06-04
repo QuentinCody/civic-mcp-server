@@ -159,48 +159,49 @@ export class CivicMCP extends McpAgent {
         private shouldBypassStaging(result: any, originalQuery?: string): boolean {
                 if (!result) return true;
 
-                // Bypass if this was an introspection query
-                if (originalQuery && this.isIntrospectionQuery(originalQuery)) {
+                let resultSize = 0;
+                try {
+                        resultSize = JSON.stringify(result).length;
+                } catch {
                         return true;
                 }
+
+                const queryIntrospection = originalQuery ? this.isIntrospectionQuery(originalQuery) : false;
 
                 // Bypass if GraphQL reported errors
                 if (result.errors) {
                         return true;
                 }
 
-                // Check if response contains introspection-like data structure
+                let responseIntrospection = false;
+
                 if (result.data) {
-                        // Common introspection response patterns
                         if (result.data.__schema || result.data.__type) {
-                                return true;
-                        }
-                        
-                        // Check for schema metadata structures
-                        const hasSchemaMetadata = Object.values(result.data).some((value: any) => {
-                                if (value && typeof value === 'object') {
-                                        // Look for typical schema introspection fields
-                                        const keys = Object.keys(value);
-                                        const schemaFields = ['types', 'queryType', 'mutationType', 'subscriptionType', 'directives'];
-                                        const typeFields = ['name', 'kind', 'description', 'fields', 'interfaces', 'possibleTypes', 'enumValues', 'inputFields'];
-                                        
-                                        return schemaFields.some(field => keys.includes(field)) ||
-                                               typeFields.filter(field => keys.includes(field)).length >= 2;
+                                responseIntrospection = true;
+                        } else {
+                                // Check for schema metadata structures
+                                const hasSchemaMetadata = Object.values(result.data).some((value: any) => {
+                                        if (value && typeof value === 'object') {
+                                                const keys = Object.keys(value);
+                                                const schemaFields = ['types', 'queryType', 'mutationType', 'subscriptionType', 'directives'];
+                                                const typeFields = ['name', 'kind', 'description', 'fields', 'interfaces', 'possibleTypes', 'enumValues', 'inputFields'];
+
+                                                return schemaFields.some(field => keys.includes(field)) ||
+                                                       typeFields.filter(field => keys.includes(field)).length >= 2;
+                                        }
+                                        return false;
+                                });
+
+                                if (hasSchemaMetadata) {
+                                        responseIntrospection = true;
                                 }
-                                return false;
-                        });
-                        
-                        if (hasSchemaMetadata) {
-                                return true;
                         }
                 }
 
+                const isIntrospection = queryIntrospection || responseIntrospection;
+
                 // Rough size check to avoid storing very small payloads
-                try {
-                        if (JSON.stringify(result).length < 1500) {
-                                return true;
-                        }
-                } catch {
+                if (resultSize < 1500) {
                         return true;
                 }
 
@@ -210,10 +211,15 @@ export class CivicMCP extends McpAgent {
                         const hasContent = values.some((v) => {
                                 if (v === null || v === undefined) return false;
                                 if (Array.isArray(v)) return v.length > 0;
-                                if (typeof v === "object") return Object.keys(v).length > 0;
+                                if (typeof v === 'object') return Object.keys(v).length > 0;
                                 return true;
                         });
                         if (!hasContent) return true;
+                }
+
+                // For large introspection results, allow staging
+                if (isIntrospection) {
+                        return false;
                 }
 
                 return false;

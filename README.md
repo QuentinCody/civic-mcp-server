@@ -8,7 +8,7 @@ The CIViC database is a crowd-sourced repository of clinical interpretations of 
 
 - **GraphQL to SQL Conversion**: Automatically converts CIViC API responses into structured SQLite tables
 - **Efficient Data Storage**: Uses Cloudflare Durable Objects with SQLite for data staging and querying
-- **Smart Response Handling**: Optimizes performance by bypassing staging for small responses, errors, and schema introspection queries
+- **Smart Response Handling**: Optimizes performance by bypassing staging for small responses and errors. Large introspection results are staged like other queries
 - **Two-Tool Pipeline**: 
   1. `civic_graphql_query`: Executes GraphQL queries and stages large datasets
   2. `civic_query_sql`: Enables SQL-based analysis of staged data
@@ -85,6 +85,6 @@ The server intelligently optimizes context usage by storing large results in a t
 - **Small responses** (< 1500 characters): Returned directly to avoid unnecessary overhead
 - **Error responses**: Passed through directly to make troubleshooting easier  
 - **Empty/null responses**: Bypassed to avoid creating empty databases
-- **Schema introspection queries**: Queries containing `__schema`, `__type`, or other introspection patterns are returned directly since they contain metadata rather than data suitable for SQL conversion
+- **Schema introspection queries**: Small introspection responses (< 1500 characters) are returned directly. Larger responses are stored in SQLite like other queries to avoid crowding the context window
 
 This optimization makes the server more efficient and provides better error visibility while still enabling powerful SQL-based analysis for substantial datasets.
