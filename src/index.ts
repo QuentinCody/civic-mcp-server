@@ -64,7 +64,7 @@ export class CivicMCP extends McpAgent {
                                 try {
                                         const graphqlResult = await this.executeGraphQLQuery(query, variables);
 
-                                        if (this.shouldBypassStaging(graphqlResult)) {
+                                        if (this.shouldBypassStaging(graphqlResult, query)) {
                                                 return {
                                                         content: [{
                                                                 type: "text" as const,
@@ -132,12 +132,67 @@ export class CivicMCP extends McpAgent {
                 return await response.json();
         }
 
-        private shouldBypassStaging(result: any): boolean {
+        private isIntrospectionQuery(query: string): boolean {
+                if (!query) return false;
+                
+                // Remove comments and normalize whitespace for analysis
+                const normalizedQuery = query
+                        .replace(/\s*#.*$/gm, '') // Remove comments
+                        .replace(/\s+/g, ' ')     // Normalize whitespace
+                        .trim()
+                        .toLowerCase();
+                
+                // Check for common introspection patterns
+                const introspectionPatterns = [
+                        '__schema',           // Schema introspection
+                        '__type',            // Type introspection
+                        '__typename',        // Typename introspection
+                        'introspectionquery', // Named introspection queries
+                        'getintrospectionquery'
+                ];
+                
+                return introspectionPatterns.some(pattern => 
+                        normalizedQuery.includes(pattern)
+                );
+        }
+
+        private shouldBypassStaging(result: any, originalQuery?: string): boolean {
                 if (!result) return true;
+
+                // Bypass if this was an introspection query
+                if (originalQuery && this.isIntrospectionQuery(originalQuery)) {
+                        return true;
+                }
 
                 // Bypass if GraphQL reported errors
                 if (result.errors) {
                         return true;
+                }
+
+                // Check if response contains introspection-like data structure
+                if (result.data) {
+                        // Common introspection response patterns
+                        if (result.data.__schema || result.data.__type) {
+                                return true;
+                        }
+                        
+                        // Check for schema metadata structures
+                        const hasSchemaMetadata = Object.values(result.data).some((value: any) => {
+                                if (value && typeof value === 'object') {
+                                        // Look for typical schema introspection fields
+                                        const keys = Object.keys(value);
+                                        const schemaFields = ['types', 'queryType', 'mutationType', 'subscriptionType', 'directives'];
+                                        const typeFields = ['name', 'kind', 'description', 'fields', 'interfaces', 'possibleTypes', 'enumValues', 'inputFields'];
+                                        
+                                        return schemaFields.some(field => keys.includes(field)) ||
+                                               typeFields.filter(field => keys.includes(field)).length >= 2;
+                                }
+                                return false;
+                        });
+                        
+                        if (hasSchemaMetadata) {
+                                return true;
+                        }
                 }
 
                 // Rough size check to avoid storing very small payloads
