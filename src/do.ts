@@ -474,15 +474,20 @@ export class JsonToSqlDO extends DurableObject {
 				return new Response(JSON.stringify(result), {
 					headers: { 'Content-Type': 'application/json' }
 				});
-			} else if (url.pathname === '/query-suggestions' && request.method === 'GET') {
-				const tableName = url.searchParams.get('table');
-				const result = await this.generateAnalyticalQueries(tableName || undefined);
-				return new Response(JSON.stringify(result), {
-					headers: { 'Content-Type': 'application/json' }
-				});
-			} else {
-				return new Response('Not Found', { status: 404 });
-			}
+                        } else if (url.pathname === '/query-suggestions' && request.method === 'GET') {
+                                const tableName = url.searchParams.get('table');
+                                const result = await this.generateAnalyticalQueries(tableName || undefined);
+                                return new Response(JSON.stringify(result), {
+                                        headers: { 'Content-Type': 'application/json' }
+                                });
+                        } else if (url.pathname === '/delete' && request.method === 'DELETE') {
+                                await this.ctx.storage.deleteAll();
+                                return new Response(JSON.stringify({ success: true }), {
+                                        headers: { 'Content-Type': 'application/json' }
+                                });
+                        } else {
+                                return new Response('Not Found', { status: 404 });
+                        }
 		} catch (error) {
 			return new Response(JSON.stringify({
 				error: error instanceof Error ? error.message : 'Unknown error'

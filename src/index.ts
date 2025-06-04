@@ -31,6 +31,9 @@ const API_CONFIG = {
 	}
 };
 
+// In-memory registry of staged datasets
+const datasetRegistry = new Map<string, { created: string; table_count?: number; total_rows?: number }>();
+
 // ========================================
 // ENVIRONMENT INTERFACE
 // ========================================
@@ -243,14 +246,19 @@ export class CivicMCP extends McpAgent {
 			throw new Error(`DO staging failed: ${errorText}`);
 		}
 		
-		const processingResult = await response.json();
-		return {
-			data_access_id: accessId,
-			processing_details: processingResult
-		};
-	}
+                const processingResult = await response.json();
+                datasetRegistry.set(accessId, {
+                        created: new Date().toISOString(),
+                        table_count: processingResult.table_count,
+                        total_rows: processingResult.total_rows
+                });
+                return {
+                        data_access_id: accessId,
+                        processing_details: processingResult
+                };
+        }
 
-	private async executeSQLQuery(dataAccessId: string, sql: string): Promise<any> {
+        private async executeSQLQuery(dataAccessId: string, sql: string): Promise<any> {
 		const env = this.env as CivicEnv;
 		if (!env?.JSON_TO_SQL_DO) {
 			throw new Error("JSON_TO_SQL_DO binding not available");
@@ -270,8 +278,22 @@ export class CivicMCP extends McpAgent {
 			throw new Error(`SQL execution failed: ${errorText}`);
 		}
 		
-		return await response.json();
-	}
+                return await response.json();
+        }
+
+        private async deleteDataset(dataAccessId: string): Promise<boolean> {
+                const env = this.env as CivicEnv;
+                if (!env?.JSON_TO_SQL_DO) {
+                        throw new Error("JSON_TO_SQL_DO binding not available");
+                }
+
+                const doId = env.JSON_TO_SQL_DO.idFromName(dataAccessId);
+                const stub = env.JSON_TO_SQL_DO.get(doId);
+
+                const response = await stub.fetch("http://do/delete", { method: 'DELETE' });
+
+                return response.ok;
+        }
 
 	// ========================================
 	// ERROR HANDLING - Reusable
@@ -305,19 +327,55 @@ interface ExecutionContext {
 }
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		const url = new URL(request.url);
+        async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+                const url = new URL(request.url);
 
-		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-			// @ts-ignore - SSE transport handling
-			return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
-		}
-		
-		return new Response(
-			`${API_CONFIG.name} - Available on /sse endpoint`, 
-			{ status: 404, headers: { "Content-Type": "text/plain" } }
-		);
-	},
+                if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
+                        // @ts-ignore - SSE transport handling
+                        return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
+                }
+
+                if (url.pathname === "/datasets" && request.method === "GET") {
+                        const list = Array.from(datasetRegistry.entries()).map(([id, info]) => ({
+                                data_access_id: id,
+                                ...info
+                        }));
+                        return new Response(JSON.stringify({ datasets: list }, null, 2), {
+                                headers: { "Content-Type": "application/json" }
+                        });
+                }
+
+                if (url.pathname.startsWith("/datasets/") && request.method === "DELETE") {
+                        const id = url.pathname.split("/")[2];
+                        if (!id || !datasetRegistry.has(id)) {
+                                return new Response(JSON.stringify({ error: "Dataset not found" }), {
+                                        status: 404,
+                                        headers: { "Content-Type": "application/json" }
+                                });
+                        }
+
+                        const doId = env.JSON_TO_SQL_DO.idFromName(id);
+                        const stub = env.JSON_TO_SQL_DO.get(doId);
+                        const resp = await stub.fetch("http://do/delete", { method: "DELETE" });
+                        if (resp.ok) {
+                                datasetRegistry.delete(id);
+                                return new Response(JSON.stringify({ success: true }), {
+                                        headers: { "Content-Type": "application/json" }
+                                });
+                        }
+
+                        const text = await resp.text();
+                        return new Response(JSON.stringify({ success: false, error: text }), {
+                                status: 500,
+                                headers: { "Content-Type": "application/json" }
+                        });
+                }
+
+                return new Response(
+                        `${API_CONFIG.name} - Available on /sse endpoint`,
+                        { status: 404, headers: { "Content-Type": "text/plain" } }
+                );
+        },
 };
 
 export { CivicMCP as MyMCP };

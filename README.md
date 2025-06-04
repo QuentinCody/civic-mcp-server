@@ -88,3 +88,17 @@ The server intelligently optimizes context usage by storing large results in a t
 - **Schema introspection queries**: Queries containing `__schema`, `__type`, or other introspection patterns are returned directly since they contain metadata rather than data suitable for SQL conversion
 
 This optimization makes the server more efficient and provides better error visibility while still enabling powerful SQL-based analysis for substantial datasets.
+
+## Dataset management
+
+Two helper endpoints are available outside of the SSE interface for managing staged datasets.
+
+- `GET /datasets` – lists the currently available `data_access_id`s with creation time and basic metadata.
+- `DELETE /datasets/:id` – removes the specified dataset and frees storage.
+
+Example:
+
+```bash
+curl https://civic-mcp-server.YOUR_SUBDOMAIN.workers.dev/datasets
+curl -X DELETE https://civic-mcp-server.YOUR_SUBDOMAIN.workers.dev/datasets/abcd-1234
+```
