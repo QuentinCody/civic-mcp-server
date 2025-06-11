@@ -1,7 +1,9 @@
 import { TableSchema } from "./types.js";
+import { ChunkingEngine } from "./ChunkingEngine.js";
 
 // Enhanced schema inference engine with proper relational decomposition
 export class SchemaInferenceEngine {
+	private chunkingEngine = new ChunkingEngine();
 	private discoveredEntities: Map<string, any[]> = new Map();
 	private entityRelationships: Map<string, Set<string>> = new Map(); // Now tracks unique relationships only
 	
@@ -244,11 +246,11 @@ export class SchemaInferenceEngine {
 				if (value.length > 0 && this.isEntity(value[0])) {
 					// This will be handled as a relationship via junction table, skip for now
 					continue;
-				} else {
-					// Store as JSON for analysis
-					this.addColumnType(columnTypes, columnName, 'JSON');
-					rowData[columnName] = JSON.stringify(value);
-				}
+							} else {
+				// Store as JSON for analysis
+				this.addColumnType(columnTypes, columnName + '_json', 'TEXT');
+				rowData[columnName + '_json'] = JSON.stringify(value);
+			}
 			} else if (value && typeof value === 'object') {
 				if (this.isEntity(value)) {
 					// This is a related entity - create foreign key
@@ -268,8 +270,8 @@ export class SchemaInferenceEngine {
 						}
 					} else {
 						// Store complex object as JSON
-						this.addColumnType(columnTypes, columnName, 'JSON');
-						rowData[columnName] = JSON.stringify(value);
+						this.addColumnType(columnTypes, columnName + '_json', 'TEXT');
+						rowData[columnName + '_json'] = JSON.stringify(value);
 					}
 				}
 			} else {

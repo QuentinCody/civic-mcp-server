@@ -3,11 +3,15 @@ import { DurableObject } from "cloudflare:workers";
 import { SchemaInferenceEngine } from "./lib/SchemaInferenceEngine.js";
 import { DataInsertionEngine } from "./lib/DataInsertionEngine.js";
 import { PaginationAnalyzer } from "./lib/PaginationAnalyzer.js";
+import { ChunkingEngine } from "./lib/ChunkingEngine.js";
+import { SchemaParser } from "./lib/SchemaParser.js";
 import { TableSchema, ProcessingResult, PaginationInfo } from "./lib/types.js";
 
 
 // Main Durable Object class - clean and focused
 export class JsonToSqlDO extends DurableObject {
+	private chunkingEngine = new ChunkingEngine();
+
 	constructor(ctx: DurableObjectState, env: any) {
 		super(ctx, env);
 	}
@@ -73,6 +77,122 @@ export class JsonToSqlDO extends DurableObject {
 				success: false,
 				error: error instanceof Error ? error.message : "SQL execution failed",
 				query: sqlQuery
+			};
+		}
+	}
+
+	/**
+	 * Enhanced SQL execution with automatic chunked content resolution
+	 */
+	async executeEnhancedSql(sqlQuery: string): Promise<any> {
+		try {
+			// First execute the regular SQL
+			const result = await this.executeSql(sqlQuery);
+			
+			if (!result.success) {
+				return result;
+			}
+
+			// Process results to resolve any chunked content references
+			const enhancedResults = await this.resolveChunkedContentInResults(result.results);
+
+			return {
+				...result,
+				results: enhancedResults,
+				chunked_content_resolved: enhancedResults.length !== result.results.length || 
+					JSON.stringify(enhancedResults) !== JSON.stringify(result.results)
+			};
+
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Enhanced SQL execution failed",
+				query: sqlQuery
+			};
+		}
+	}
+
+	/**
+	 * Resolves chunked content references in SQL results
+	 */
+	private async resolveChunkedContentInResults(results: any[]): Promise<any[]> {
+		const resolvedResults = [];
+
+		for (const row of results) {
+			const resolvedRow: any = {};
+			
+			for (const [key, value] of Object.entries(row)) {
+				if (this.chunkingEngine.isContentReference(value)) {
+					try {
+						const contentId = this.chunkingEngine.extractContentId(value as string);
+						const resolvedContent = await this.chunkingEngine.retrieveChunkedContent(
+							contentId, 
+							this.ctx.storage.sql
+						);
+						
+						if (resolvedContent !== null) {
+							// Try to parse as JSON if it looks like JSON
+							try {
+								resolvedRow[key] = JSON.parse(resolvedContent);
+							} catch {
+								// If not valid JSON, return as string
+								resolvedRow[key] = resolvedContent;
+							}
+						} else {
+							resolvedRow[key] = `[CHUNKED_CONTENT_NOT_FOUND:${contentId}]`;
+						}
+					} catch (error) {
+						console.error(`Failed to resolve chunked content for ${key}:`, error);
+						resolvedRow[key] = `[CHUNKED_CONTENT_ERROR:${error}]`;
+					}
+				} else {
+					resolvedRow[key] = value;
+				}
+			}
+			
+			resolvedResults.push(resolvedRow);
+		}
+
+		return resolvedResults;
+	}
+
+	/**
+	 * Initialize schema-aware chunking from GraphQL schema content
+	 */
+	async initializeSchemaAwareChunking(schemaContent: string): Promise<any> {
+		try {
+			// Parse the GraphQL schema
+			const schemaParser = new SchemaParser();
+			const schemaInfo = schemaParser.parseSchemaContent(schemaContent);
+			
+			// Configure the chunking engine with schema awareness
+			this.chunkingEngine.configureSchemaAwareness(schemaInfo);
+			
+			// Get extraction rules and relationships
+			const extractionRules = schemaParser.getExtractionRules();
+			const relationships = schemaParser.getRelationships();
+			
+			return {
+				success: true,
+				message: "Schema-aware chunking initialized successfully",
+				schema_analysis: {
+					total_types: Object.keys(schemaInfo.types).length,
+					relationships_count: schemaInfo.relationships.length,
+					extraction_rules_generated: extractionRules.length,
+					entity_relationships: relationships.length
+				},
+				recommendations: [
+					"Schema-aware chunking is now active",
+					"Large content fields will be automatically detected and chunked",
+					"Use the /chunking-analysis endpoint to monitor effectiveness",
+					"Consider testing with real data to validate chunking decisions"
+				]
+			};
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Schema initialization failed",
+				suggestion: "Ensure the schema content is valid GraphQL schema definition"
 			};
 		}
 	}
@@ -480,6 +600,34 @@ export class JsonToSqlDO extends DurableObject {
                                 return new Response(JSON.stringify(result), {
                                         headers: { 'Content-Type': 'application/json' }
                                 });
+                        } else if (url.pathname === '/query-enhanced' && request.method === 'POST') {
+				const { sql } = await request.json() as { sql: string };
+				const result = await this.executeEnhancedSql(sql);
+				return new Response(JSON.stringify(result), {
+					headers: { 'Content-Type': 'application/json' }
+				});
+			} else if (url.pathname === '/chunking-stats' && request.method === 'GET') {
+				const result = await this.chunkingEngine.getChunkingStats(this.ctx.storage.sql);
+				return new Response(JSON.stringify({
+					success: true,
+					chunking_statistics: result
+				}), {
+					headers: { 'Content-Type': 'application/json' }
+				});
+			} else if (url.pathname === '/initialize-schema' && request.method === 'POST') {
+				const { schemaContent } = await request.json() as { schemaContent: string };
+				const result = await this.initializeSchemaAwareChunking(schemaContent);
+				return new Response(JSON.stringify(result), {
+					headers: { 'Content-Type': 'application/json' }
+				});
+			} else if (url.pathname === '/chunking-analysis' && request.method === 'GET') {
+				const result = await this.chunkingEngine.analyzeChunkingEffectiveness(this.ctx.storage.sql);
+				return new Response(JSON.stringify({
+					success: true,
+					analysis: result
+				}), {
+					headers: { 'Content-Type': 'application/json' }
+				});
                         } else if (url.pathname === '/delete' && request.method === 'DELETE') {
                                 await this.ctx.storage.deleteAll();
                                 return new Response(JSON.stringify({ success: true }), {

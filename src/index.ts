@@ -246,7 +246,7 @@ export class CivicMCP extends McpAgent {
 			throw new Error(`DO staging failed: ${errorText}`);
 		}
 		
-                const processingResult = await response.json();
+                const processingResult = await response.json() as any;
                 datasetRegistry.set(accessId, {
                         created: new Date().toISOString(),
                         table_count: processingResult.table_count,
@@ -258,7 +258,7 @@ export class CivicMCP extends McpAgent {
                 };
         }
 
-        private async executeSQLQuery(dataAccessId: string, sql: string): Promise<any> {
+        	private async executeSQLQuery(dataAccessId: string, sql: string): Promise<any> {
 		const env = this.env as CivicEnv;
 		if (!env?.JSON_TO_SQL_DO) {
 			throw new Error("JSON_TO_SQL_DO binding not available");
@@ -267,7 +267,8 @@ export class CivicMCP extends McpAgent {
 		const doId = env.JSON_TO_SQL_DO.idFromName(dataAccessId);
 		const stub = env.JSON_TO_SQL_DO.get(doId);
 		
-		const response = await stub.fetch("http://do/query", {
+		// Use enhanced SQL execution that automatically resolves chunked content
+		const response = await stub.fetch("http://do/query-enhanced", {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ sql })
@@ -278,8 +279,8 @@ export class CivicMCP extends McpAgent {
 			throw new Error(`SQL execution failed: ${errorText}`);
 		}
 		
-                return await response.json();
-        }
+		return await response.json();
+	}
 
         private async deleteDataset(dataAccessId: string): Promise<boolean> {
                 const env = this.env as CivicEnv;
@@ -367,6 +368,43 @@ export default {
                         const text = await resp.text();
                         return new Response(JSON.stringify({ success: false, error: text }), {
                                 status: 500,
+                                headers: { "Content-Type": "application/json" }
+                        });
+                }
+
+                // Schema initialization endpoint
+                if (url.pathname === "/initialize-schema" && request.method === "POST") {
+                        const globalDoId = env.JSON_TO_SQL_DO.idFromName("global-schema-config");
+                        const stub = env.JSON_TO_SQL_DO.get(globalDoId);
+                        const resp = await stub.fetch("http://do/initialize-schema", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: await request.text()
+                        });
+                        return new Response(await resp.text(), {
+                                status: resp.status,
+                                headers: { "Content-Type": "application/json" }
+                        });
+                }
+
+                // Chunking stats endpoint
+                if (url.pathname === "/chunking-stats" && request.method === "GET") {
+                        const globalDoId = env.JSON_TO_SQL_DO.idFromName("global-schema-config");
+                        const stub = env.JSON_TO_SQL_DO.get(globalDoId);
+                        const resp = await stub.fetch("http://do/chunking-stats");
+                        return new Response(await resp.text(), {
+                                status: resp.status,
+                                headers: { "Content-Type": "application/json" }
+                        });
+                }
+
+                // Chunking analysis endpoint
+                if (url.pathname === "/chunking-analysis" && request.method === "GET") {
+                        const globalDoId = env.JSON_TO_SQL_DO.idFromName("global-schema-config");
+                        const stub = env.JSON_TO_SQL_DO.get(globalDoId);
+                        const resp = await stub.fetch("http://do/chunking-analysis");
+                        return new Response(await resp.text(), {
+                                status: resp.status,
                                 headers: { "Content-Type": "application/json" }
                         });
                 }

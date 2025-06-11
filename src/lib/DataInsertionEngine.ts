@@ -1,9 +1,34 @@
 import { TableSchema } from "./types.js";
+import { ChunkingEngine } from "./ChunkingEngine.js";
+import { SchemaParser, FieldExtractionRule } from "./SchemaParser.js";
 
 export class DataInsertionEngine {
+	private chunkingEngine = new ChunkingEngine();
+	private schemaParser = new SchemaParser();
 	private processedEntities: Map<string, Map<any, number>> = new Map();
 	private relationshipData: Map<string, Set<string>> = new Map(); // Track actual relationships found in data
+	private extractionRules: FieldExtractionRule[] = [];
 	
+	/**
+	 * Configure schema-aware entity extraction
+	 */
+	configureSchemaAwareExtraction(schemaContent: string): void {
+		const schemaInfo = this.schemaParser.parseSchemaContent(schemaContent);
+		this.extractionRules = this.schemaParser.getExtractionRules();
+		this.chunkingEngine.configureSchemaAwareness(schemaInfo);
+	}
+
+	/**
+	 * Check if entities should be extracted from a field based on schema rules
+	 */
+	private shouldExtractEntitiesFromField(typeName: string, fieldName: string): {
+		extract: boolean;
+		targetType?: string;
+		isListField: boolean;
+	} {
+		return this.schemaParser.shouldExtractEntities(typeName, fieldName);
+	}
+
 	async insertData(data: any, schemas: Record<string, TableSchema>, sql: any): Promise<void> {
 		// Reset state for new insertion
 		this.processedEntities.clear();
@@ -76,10 +101,11 @@ export class DataInsertionEngine {
 	private async processEntityRelationships(entity: any, entityType: string, schemas: Record<string, TableSchema>, sql: any, path: string[]): Promise<void> {
 		for (const [key, value] of Object.entries(entity)) {
 			if (Array.isArray(value) && value.length > 0) {
-				// Check if this array contains entities
-				const firstItem = value.find(item => this.isEntity(item));
-				if (firstItem) {
-					const relatedEntityType = this.inferEntityType(firstItem, [key]);
+				// Check if this array contains entities using schema information
+				const extractionInfo = this.shouldExtractEntitiesFromField(entityType, key);
+				
+				if (extractionInfo.extract && value.length > 0 && this.isEntity(value[0])) {
+					const relatedEntityType = extractionInfo.targetType || this.inferEntityType(value[0], [key]);
 					
 					// Process all entities in this array and record relationships
 					for (const item of value) {
@@ -101,6 +127,33 @@ export class DataInsertionEngine {
 							await this.processEntityRelationships(item, relatedEntityType, schemas, sql, [...path, key]);
 						}
 					}
+				} else {
+					// Fallback to original logic for non-schema-guided extraction
+					const firstItem = value.find(item => this.isEntity(item));
+					if (firstItem) {
+						const relatedEntityType = this.inferEntityType(firstItem, [key]);
+						
+						// Process all entities in this array and record relationships
+						for (const item of value) {
+							if (this.isEntity(item) && schemas[relatedEntityType]) {
+								await this.insertEntityRecord(item, relatedEntityType, schemas[relatedEntityType], sql);
+								
+								// Track this relationship for junction table creation
+								const relationshipKey = [entityType, relatedEntityType].sort().join('_');
+								const relationships = this.relationshipData.get(relationshipKey) || new Set();
+								const entityId = this.getEntityId(entity, entityType);
+								const relatedId = this.getEntityId(item, relatedEntityType);
+								
+								if (entityId && relatedId) {
+									relationships.add(`${entityId}_${relatedId}`);
+									this.relationshipData.set(relationshipKey, relationships);
+								}
+								
+								// Recursively process nested entities
+								await this.processEntityRelationships(item, relatedEntityType, schemas, sql, [...path, key]);
+							}
+						}
+					}
 				}
 			} else if (value && typeof value === 'object' && this.isEntity(value)) {
 				// Single related entity
@@ -120,7 +173,7 @@ export class DataInsertionEngine {
 			return entityMap.get(entity)!;
 		}
 		
-		const rowData = this.mapEntityToSchema(entity, schema);
+		const rowData = await this.mapEntityToSchema(entity, schema, sql);
 		if (Object.keys(rowData).length === 0) return null;
 		
 		const columns = Object.keys(rowData);
@@ -171,7 +224,7 @@ export class DataInsertionEngine {
 		return entityMap?.get(entity) || null;
 	}
 	
-	private mapEntityToSchema(obj: any, schema: TableSchema): any {
+	private async mapEntityToSchema(obj: any, schema: TableSchema, sql: any): Promise<any> {
 		const rowData: any = {};
 		
 		if (!obj || typeof obj !== 'object') {
@@ -211,12 +264,12 @@ export class DataInsertionEngine {
 					}
 				}
 			}
-			// Handle JSON columns
+			// Handle JSON columns with chunking
 			else if (columnName.endsWith('_json')) {
 				const baseKey = columnName.slice(0, -5);
 				const originalKey = this.findOriginalKey(obj, baseKey);
 				if (originalKey && obj[originalKey] && typeof obj[originalKey] === 'object') {
-					value = JSON.stringify(obj[originalKey]);
+					value = await this.chunkingEngine.smartJsonStringify(obj[originalKey], sql);
 				}
 			}
 			// Handle regular columns
@@ -363,7 +416,7 @@ export class DataInsertionEngine {
 	}
 
 	private async insertSimpleRow(obj: any, tableName: string, schema: TableSchema, sql: any): Promise<void> {
-		const rowData = this.mapObjectToSimpleSchema(obj, schema);
+		const rowData = await this.mapObjectToSimpleSchema(obj, schema, sql);
 		if (Object.keys(rowData).length === 0 && !(tableName === 'scalar_data' && obj === null)) return; // Allow inserting null for scalar_data
 
 		const columns = Object.keys(rowData);
@@ -374,7 +427,7 @@ export class DataInsertionEngine {
 		sql.exec(insertSQL, ...values);
 	}
 
-	private mapObjectToSimpleSchema(obj: any, schema: TableSchema): any {
+	private async mapObjectToSimpleSchema(obj: any, schema: TableSchema, sql: any): Promise<any> {
 		const rowData: any = {};
 
 		if (obj === null || typeof obj !== 'object') {
@@ -405,7 +458,7 @@ export class DataInsertionEngine {
 				const baseKey = columnName.slice(0, -5);
 				const originalKey = this.findOriginalKey(obj, baseKey);
 				if (originalKey && obj[originalKey] !== undefined) {
-					valueToInsert = JSON.stringify(obj[originalKey]);
+					valueToInsert = await this.chunkingEngine.smartJsonStringify(obj[originalKey], sql);
 					originalKeyFound = true;
 				}
 			} else {
@@ -414,11 +467,11 @@ export class DataInsertionEngine {
 					const val = obj[originalKey];
 					if (typeof val === 'boolean') {
 						valueToInsert = val ? 1 : 0;
-					} else if (typeof val === 'object' && val !== null) {
-						// This should not happen if schema is from extractSimpleFields, which JSONifies nested objects.
-						// If it does, it implies a mismatch. For safety, try to JSON stringify.
-						valueToInsert = JSON.stringify(val);
-					} else {
+									} else if (typeof val === 'object' && val !== null) {
+					// This should not happen if schema is from extractSimpleFields, which JSONifies nested objects.
+					// If it does, it implies a mismatch. For safety, try to JSON stringify.
+					valueToInsert = await this.chunkingEngine.smartJsonStringify(val, sql);
+				} else {
 						valueToInsert = val;
 					}
 					originalKeyFound = true;
@@ -431,7 +484,7 @@ export class DataInsertionEngine {
 				// This handles cases where sanitized names might not be used or `findOriginalKey` fails but direct prop exists
 				const val = obj[columnName];
 				if (typeof val === 'boolean') valueToInsert = val ? 1:0;
-				else if (typeof val === 'object' && val !== null) valueToInsert = JSON.stringify(val);
+				else if (typeof val === 'object' && val !== null) valueToInsert = await this.chunkingEngine.smartJsonStringify(val, sql);
 				else valueToInsert = val;
 				rowData[columnName] = valueToInsert;
 			}
