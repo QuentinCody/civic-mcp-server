@@ -30,7 +30,14 @@
 			}
 		]
 	},
-	"observability": {
-		"enabled": true
-	}
+        "observability": {
+                "enabled": true
+        },
+        "vars": {
+                "API_NAME": "GenericMCP",
+                "API_VERSION": "0.1.0",
+                "API_DESCRIPTION": "MCP Server for GraphQL APIs",
+                "GRAPHQL_ENDPOINT": "https://example.com/graphql",
+                "GRAPHQL_HEADERS": "{}"
+        }
 }

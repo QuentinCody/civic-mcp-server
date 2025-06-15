@@ -4,32 +4,65 @@ import { z } from "zod";
 import { JsonToSqlDO } from "./do.js";
 
 // ========================================
-// API CONFIGURATION - Customize for your GraphQL API
+// API CONFIGURATION - Customize via environment variables
 // ========================================
-const API_CONFIG = {
-	name: "CivicExplorer",
-	version: "0.1.0",
-	description: "MCP Server for querying GraphQL APIs and converting responses to queryable SQLite tables",
-	
-	// GraphQL API settings
-	endpoint: 'https://civicdb.org/api/graphql',
-	headers: {
-		"Accept": 'application/vnd.civicdb.v2+json', // API-specific version header
-		"User-Agent": "MCPCivicServer/0.1.0"
-	},
-	
-	// Tool names and descriptions
-	tools: {
-		graphql: {
-			name: "civic_graphql_query",
+
+interface ApiConfig {
+        name: string;
+        version: string;
+        description: string;
+        endpoint: string;
+        headers: Record<string, string>;
+        tools: {
+                graphql: { name: string; description: string };
+                sql: { name: string; description: string };
+        };
+}
+
+const DEFAULT_API_CONFIG: ApiConfig = {
+        name: "CivicExplorer",
+        version: "0.1.0",
+        description: "MCP Server for querying GraphQL APIs and converting responses to queryable SQLite tables",
+
+        // GraphQL API settings
+        endpoint: "https://civicdb.org/api/graphql",
+        headers: {
+                Accept: "application/vnd.civicdb.v2+json",
+                "User-Agent": "MCPCivicServer/0.1.0",
+        },
+
+        // Tool names and descriptions
+        tools: {
+                graphql: {
+                        name: "civic_graphql_query",
 			description: "Executes GraphQL queries against CIViC API (V2), processes responses into SQLite tables, and returns metadata for subsequent SQL querying. Returns a data_access_id and schema information."
 		},
 		sql: {
 			name: "civic_query_sql", 
 			description: "Execute read-only SQL queries against staged data. Use the data_access_id from civic_graphql_query to query the SQLite tables."
 		}
-	}
+        }
 };
+
+function getApiConfig(env: Partial<CivicEnv>): ApiConfig {
+        const headers = { ...DEFAULT_API_CONFIG.headers } as Record<string, string>;
+        if (env.GRAPHQL_HEADERS) {
+                try {
+                        Object.assign(headers, JSON.parse(env.GRAPHQL_HEADERS));
+                } catch {
+                        // ignore parse errors
+                }
+        }
+
+        return {
+                name: env.API_NAME || DEFAULT_API_CONFIG.name,
+                version: env.API_VERSION || DEFAULT_API_CONFIG.version,
+                description: env.API_DESCRIPTION || DEFAULT_API_CONFIG.description,
+                endpoint: env.GRAPHQL_ENDPOINT || DEFAULT_API_CONFIG.endpoint,
+                headers,
+                tools: DEFAULT_API_CONFIG.tools,
+        };
+}
 
 // In-memory registry of staged datasets
 const datasetRegistry = new Map<string, { created: string; table_count?: number; total_rows?: number }>();
@@ -38,27 +71,35 @@ const datasetRegistry = new Map<string, { created: string; table_count?: number;
 // ENVIRONMENT INTERFACE
 // ========================================
 interface CivicEnv {
-	MCP_HOST?: string;
-	MCP_PORT?: string;
-	JSON_TO_SQL_DO: DurableObjectNamespace;
+        MCP_HOST?: string;
+        MCP_PORT?: string;
+        JSON_TO_SQL_DO: DurableObjectNamespace;
+        API_NAME?: string;
+        API_VERSION?: string;
+        API_DESCRIPTION?: string;
+        GRAPHQL_ENDPOINT?: string;
+        GRAPHQL_HEADERS?: string;
 }
 
 // ========================================
 // CORE MCP SERVER CLASS - Reusable template
 // ========================================
 
-export class CivicMCP extends McpAgent {
-	server = new McpServer({
-		name: API_CONFIG.name,
-		version: API_CONFIG.version,
-		description: API_CONFIG.description
-	});
+export class CivicMCP extends McpAgent<CivicEnv> {
+        server!: McpServer;
+        private apiConfig!: ApiConfig;
 
-	async init() {
-		// Tool #1: GraphQL to SQLite staging
-		this.server.tool(
-			API_CONFIG.tools.graphql.name,
-			API_CONFIG.tools.graphql.description,
+        async init() {
+                this.apiConfig = getApiConfig(this.env as CivicEnv);
+                this.server = new McpServer({
+                        name: this.apiConfig.name,
+                        version: this.apiConfig.version,
+                        description: this.apiConfig.description,
+                });
+                // Tool #1: GraphQL to SQLite staging
+                this.server.tool(
+                        this.apiConfig.tools.graphql.name,
+                        this.apiConfig.tools.graphql.description,
 			{
 				query: z.string().describe("GraphQL query string"),
 				variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
@@ -91,9 +132,9 @@ export class CivicMCP extends McpAgent {
                 );
 
 		// Tool #2: SQL querying against staged data
-		this.server.tool(
-			API_CONFIG.tools.sql.name,
-			API_CONFIG.tools.sql.description,
+                this.server.tool(
+                        this.apiConfig.tools.sql.name,
+                        this.apiConfig.tools.sql.description,
 			{
 				data_access_id: z.string().describe("Data access ID from the GraphQL query tool"),
 				sql: z.string().describe("SQL SELECT query to execute"),
@@ -116,12 +157,12 @@ export class CivicMCP extends McpAgent {
         private async executeGraphQLQuery(query: string, variables?: Record<string, any>): Promise<any> {
                 const headers = {
                         "Content-Type": "application/json",
-                        ...API_CONFIG.headers
+                        ...this.apiConfig.headers,
                 };
 		
 		const body = { query, ...(variables && { variables }) };
 		
-		const response = await fetch(API_CONFIG.endpoint, {
+                const response = await fetch(this.apiConfig.endpoint, {
 			method: 'POST',
 			headers,
 			body: JSON.stringify(body),
@@ -409,8 +450,9 @@ export default {
                         });
                 }
 
+                const cfg = getApiConfig(env as CivicEnv);
                 return new Response(
-                        `${API_CONFIG.name} - Available on /sse endpoint`,
+                        `${cfg.name} - Available on /sse endpoint`,
                         { status: 404, headers: { "Content-Type": "text/plain" } }
                 );
         },
