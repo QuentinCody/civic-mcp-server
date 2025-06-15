@@ -13,7 +13,8 @@ async function testCivicMCP() {
 
     try {
         // Create SSE transport to local server
-        const transport = new SSEClientTransport(new URL("http://localhost:8787/sse"));
+        const serverUrl = process.env.TEST_MCP_URL || "http://localhost:8787/sse";
+        const transport = new SSEClientTransport(new URL(serverUrl));
         const client = new Client(
             {
                 name: "test-client",
