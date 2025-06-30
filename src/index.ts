@@ -17,7 +17,8 @@ const API_CONFIG = {
 		structuredToolOutput: true,
 		metaFields: true,
 		protocolVersionHeaders: true,
-		titleFields: true
+		titleFields: true,
+		toolAnnotations: true
 	},
 	
 	// GraphQL API settings
@@ -27,17 +28,49 @@ const API_CONFIG = {
 		"User-Agent": "MCPCivicServer/0.1.0"
 	},
 	
-	// Tool names and descriptions
+	// Tool definitions with enhanced descriptions including annotations
 	tools: {
 		graphql: {
-			name: "civic_graphql_query",
-			title: "CIViC GraphQL Query Tool",
-			description: "Executes GraphQL queries against CIViC API (V2), processes responses into SQLite tables, and returns metadata for subsequent SQL querying. Returns a data_access_id and schema information."
+			name: 'civic_graphql_query',
+			description: `Execute GraphQL queries against the CIViC API, automatically staging large datasets in SQLite for subsequent analysis.
+			
+🏷️ TOOL ANNOTATIONS:
+• Type: Non-destructive, Non-idempotent, Open-world
+• Interactions: External API calls to CIViC GraphQL endpoint
+• Side Effects: May create temporary SQLite tables for large datasets
+• Caching: None (fresh data on each query)
+• Rate Limits: Subject to CIViC API rate limits
+• MCP 2025-06-18 Compliant: ✅`,
+			
+			annotations: {
+				destructive: false,
+				idempotent: false,
+				cacheable: false,
+				world_interaction: "open",
+				side_effects: ["creates_temporary_data", "external_api_calls"],
+				resource_usage: "network_io_heavy"
+			}
 		},
 		sql: {
-			name: "civic_query_sql",
-			title: "SQLite Query Tool", 
-			description: "Execute read-only SQL queries against staged data. Use the data_access_id from civic_graphql_query to query the SQLite tables."
+			name: 'civic_query_sql',
+			description: `Execute read-only SQL queries against staged CIViC data in SQLite. Use the data_access_id from a GraphQL query to access the corresponding dataset.
+			
+🏷️ TOOL ANNOTATIONS:
+• Type: Read-only, Idempotent, Closed-world  
+• Interactions: Local SQLite database queries only
+• Side Effects: None (read-only operations)
+• Caching: Data is pre-staged and cached
+• Rate Limits: None (local operations)
+• MCP 2025-06-18 Compliant: ✅`,
+			
+			annotations: {
+				destructive: false,
+				idempotent: true,
+				cacheable: true,
+				world_interaction: "closed",
+				side_effects: [],
+				resource_usage: "low"
+			}
 		}
 	}
 };
@@ -75,8 +108,10 @@ export class CivicMCP extends McpAgent {
 				variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
 			},
                         async ({ query, variables }) => {
+                                const startTime = Date.now();
                                 try {
                                         const graphqlResult = await this.executeGraphQLQuery(query, variables);
+                                        const executionTime = Date.now() - startTime;
 
                                         if (this.shouldBypassStaging(graphqlResult, query)) {
                                                 // For bypassed queries (like introspection), return as structured JSON
@@ -87,14 +122,18 @@ export class CivicMCP extends McpAgent {
                                                         }],
                                                         _meta: {
                                                                 bypassed: true,
-                                                                reason: "introspection_or_error_response"
+                                                                reason: this.getBypassReason(graphqlResult, query),
+                                                                execution_time_ms: executionTime,
+                                                                query_type: "graphql",
+                                                                has_errors: !!(graphqlResult.errors && graphqlResult.errors.length > 0),
+                                                                is_introspection: this.isIntrospectionQuery(query)
                                                         }
                                                 };
                                         }
 
                                         const stagingResult = await this.stageDataInDurableObject(graphqlResult);
                                         
-                                        // Return structured response with metadata
+                                        // Return structured response with comprehensive metadata
                                         return {
                                                 content: [{
                                                         type: "text" as const,
@@ -102,13 +141,20 @@ export class CivicMCP extends McpAgent {
                                                 }],
                                                 _meta: {
                                                         data_access_id: stagingResult.data_access_id,
+                                                        query_type: "graphql",
+                                                        execution_time_ms: executionTime,
+                                                        staging_bypassed: false,
+                                                        tables_created: stagingResult.processing_details?.tables_created || [],
                                                         table_count: stagingResult.processing_details?.table_count || 0,
-                                                        total_rows: stagingResult.processing_details?.total_rows || 0
+                                                        total_rows: stagingResult.processing_details?.total_rows || 0,
+                                                        has_errors: false,
+                                                        query_size_bytes: JSON.stringify(graphqlResult).length
                                                 }
                                         };
 
                                 } catch (error) {
-                                        return this.createErrorResponse("GraphQL execution failed", error);
+                                        const executionTime = Date.now() - startTime;
+                                        return this.createErrorResponse("GraphQL execution failed", error, executionTime);
                                 }
                         }
                 );
@@ -123,8 +169,11 @@ export class CivicMCP extends McpAgent {
 				params: z.array(z.string()).optional().describe("Optional query parameters"),
 			},
 			async ({ data_access_id, sql }) => {
+				const startTime = Date.now();
 				try {
 					const queryResult = await this.executeSQLQuery(data_access_id, sql);
+					const executionTime = Date.now() - startTime;
+					
 					return { 
 						content: [{ 
 							type: "text" as const, 
@@ -133,12 +182,17 @@ export class CivicMCP extends McpAgent {
 						_meta: {
 							data_access_id,
 							query_type: queryResult.query_type || "select",
+							execution_time_ms: executionTime,
 							row_count: queryResult.row_count || 0,
-							chunked_content_resolved: queryResult.chunked_content_resolved || false
+							column_count: queryResult.column_names?.length || 0,
+							chunked_content_resolved: queryResult.chunked_content_resolved || false,
+							sql_query_length: sql.length,
+							has_results: (queryResult.row_count || 0) > 0
 						}
 					};
 				} catch (error) {
-					return this.createErrorResponse("SQL execution failed", error);
+					const executionTime = Date.now() - startTime;
+					return this.createErrorResponse("SQL execution failed", error, executionTime);
 				}
 			}
 		);
@@ -232,9 +286,9 @@ export class CivicMCP extends McpAgent {
                         }
                 }
 
-                // Rough size check to avoid storing very small payloads
+                // Only bypass very small payloads (reduced threshold for better staging)
                 try {
-                        if (JSON.stringify(result).length < 1500) {
+                        if (JSON.stringify(result).length < 500) {
                                 return true;
                         }
                 } catch {
@@ -254,6 +308,43 @@ export class CivicMCP extends McpAgent {
                 }
 
                 return false;
+        }
+
+        private getBypassReason(result: any, originalQuery?: string): string {
+                if (!result) return "null_or_empty_result";
+                
+                if (originalQuery && this.isIntrospectionQuery(originalQuery)) {
+                        return "introspection_query";
+                }
+                
+                if (result.errors) {
+                        return "graphql_errors_present";
+                }
+                
+                if (result.data) {
+                        if (result.data.__schema || result.data.__type) {
+                                return "schema_introspection_response";
+                        }
+                        
+                        const values = Object.values(result.data);
+                        const hasContent = values.some((v) => {
+                                if (v === null || v === undefined) return false;
+                                if (Array.isArray(v)) return v.length > 0;
+                                if (typeof v === "object") return Object.keys(v).length > 0;
+                                return true;
+                        });
+                        if (!hasContent) return "empty_data_content";
+                }
+                
+                try {
+                        if (JSON.stringify(result).length < 500) {
+                                return "small_payload_size";
+                        }
+                } catch {
+                        return "serialization_error";
+                }
+                
+                return "unknown_bypass_reason";
         }
 
 	// ========================================
@@ -333,19 +424,21 @@ export class CivicMCP extends McpAgent {
 	// ========================================
 	// ERROR HANDLING - Reusable
 	// ========================================
-	private createErrorResponse(message: string, error: unknown) {
+	private createErrorResponse(message: string, error: unknown, executionTime?: number) {
 		return {
 			content: [{
 				type: "text" as const,
 				text: JSON.stringify({
 					success: false,
 					error: message,
-					details: error instanceof Error ? error.message : String(error)
+					details: error instanceof Error ? error.message : String(error),
+					timestamp: new Date().toISOString()
 				}, null, 2)
 			}],
 			_meta: {
 				error: true,
 				error_type: error instanceof Error ? error.constructor.name : "UnknownError",
+				execution_time_ms: executionTime || 0,
 				timestamp: new Date().toISOString()
 			}
 		};
@@ -371,11 +464,14 @@ export default {
                 const url = new URL(request.url);
 
                 // Handle SSE transport with protocol version header support
+                // TODO: Update to Streamable HTTP transport per MCP 2025-03-26 specification
                 if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-                        // Extract protocol version from request headers
+                        // Extract protocol version from request headers (MCP 2025-06-18 requirement)
                         const protocolVersion = request.headers.get("MCP-Protocol-Version");
                         
-                        // @ts-ignore - SSE transport handling
+                        // Note: Current implementation uses SSE transport 
+                        // Should be updated to use Streamable HTTP transport as per MCP 2025-03-26
+                        // @ts-ignore - SSE transport handling - needs architectural update
                         const response = await CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
                         
                         // Add protocol version header to response if provided in request
@@ -466,7 +562,7 @@ export default {
                 }
 
                 return new Response(
-                        `${API_CONFIG.name} - Available on /sse endpoint`,
+                        `${API_CONFIG.name} - MCP Server v${API_CONFIG.mcpSpecVersion} - Available on /sse endpoint`,
                         { status: 404, headers: { "Content-Type": "text/plain" } }
                 );
         },

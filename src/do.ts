@@ -19,7 +19,7 @@ export class JsonToSqlDO extends DurableObject {
 	async processAndStoreJson(jsonData: any): Promise<ProcessingResult> {
 		try {
 			let dataToProcess = jsonData?.data ? jsonData.data : jsonData;
-			const paginationInfo = PaginationAnalyzer.extractInfo(dataToProcess); // Analyze from overall data structure
+			const paginationInfo = PaginationAnalyzer.extractInfo(dataToProcess);
 
 			const schemaEngine = new SchemaInferenceEngine();
 			const schemas = schemaEngine.inferFromJSON(dataToProcess);
@@ -39,18 +39,43 @@ export class JsonToSqlDO extends DurableObject {
 				metadata.pagination = paginationInfo;
 			}
 			
+			// Include comprehensive processing details
+			const processingDetails = {
+				table_count: metadata.table_count || 0,
+				total_rows: metadata.total_rows || 0,
+				tables_created: Object.keys(schemas),
+				schemas_processed: Object.keys(schemas).length,
+				pagination_info: paginationInfo.hasNextPage ? paginationInfo : null
+			};
+			
 			return {
 				success: true,
 				message: "Data processed successfully",
+				data_access_id: this.extractDataAccessId(),
+				processing_details: processingDetails,
 				...metadata
 			};
 			
 		} catch (error) {
 			return {
 				success: false,
-				message: error instanceof Error ? error.message : "Processing failed"
+				message: error instanceof Error ? error.message : "Processing failed",
+				data_access_id: this.extractDataAccessId(),
+				processing_details: {
+					table_count: 0,
+					total_rows: 0,
+					tables_created: [],
+					schemas_processed: 0,
+					error: error instanceof Error ? error.message : "Unknown error"
+				}
 			};
 		}
+	}
+
+	private extractDataAccessId(): string {
+		// Extract the access ID from the Durable Object namespace ID
+		// The ID is set when the DO is created in stageDataInDurableObject
+		return this.ctx.id.toString();
 	}
 
 	async executeSql(sqlQuery: string): Promise<any> {

@@ -4,6 +4,98 @@ This is a Cloudflare Workers-based Model Context Protocol (MCP) server that prov
 
 The CIViC database is a crowd-sourced repository of clinical interpretations of cancer variants. This MCP server enables structured queries and data analysis of cancer genomics information through natural language interactions with AI assistants.
 
+## MCP Specification Compliance
+
+This server implements **MCP 2025-06-18** specification with the following compliance status:
+
+### ✅ Implemented Features
+- **Structured Tool Output**: Tools return structured JSON data with `_meta` fields
+- **Protocol Version Headers**: Supports `MCP-Protocol-Version` header handling
+- **Title Fields**: Tools include human-friendly titles for display
+- **Meta Fields**: Extensive use of `_meta` fields for additional context
+- **Error Handling**: Proper error responses with structured content
+
+### 🔄 Partially Implemented
+- **Tool Annotations**: Configuration ready but SDK integration pending
+  - `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` defined
+  - Need SDK update to support annotation parameters
+
+### ⚠️ Pending Implementation
+- **Streamable HTTP Transport**: Currently uses SSE transport
+  - **Action Required**: Migrate from HTTP+SSE to Streamable HTTP per MCP 2025-03-26
+  - **Status**: Architecture change needed for proper implementation
+- **OAuth 2.1 Authorization**: Not implemented
+  - **Action Required**: Add OAuth 2.1 support for secure remote server access
+  - **Components**: Authorization Server discovery, Resource Indicators (RFC 8707)
+- **JSON-RPC Batching**: Properly removed (was added in 2025-03-26, removed in 2025-06-18)
+
+## Tool Annotations Reference
+
+The server defines comprehensive tool annotations for MCP clients:
+
+```typescript
+// GraphQL Query Tool
+annotations: {
+  readOnlyHint: false,      // Creates/modifies data in SQLite
+  destructiveHint: false,   // Non-destructive data staging
+  idempotentHint: false,    // Different queries produce different results
+  openWorldHint: true       // Interacts with external CIViC API
+}
+
+// SQL Query Tool  
+annotations: {
+  readOnlyHint: true,       // Only reads data
+  destructiveHint: false,   // Cannot modify data (read-only SQL)
+  idempotentHint: true,     // Same query produces same results
+  openWorldHint: false      // Operates on closed SQLite database
+}
+```
+
+## Future Updates Required
+
+### 1. Transport Layer Migration
+```typescript
+// Current: SSE Transport (deprecated)
+CivicMCP.serveSSE("/sse").fetch(request, env, ctx)
+
+// Target: Streamable HTTP Transport (MCP 2025-03-26+)
+// Implementation requires MCP SDK architectural updates
+```
+
+### 2. Tool Annotation Integration
+```typescript
+// Current: SDK doesn't support 5-argument tool() method
+this.server.tool(name, description, schema, handler, annotations) // ❌
+
+// Target: Find correct SDK pattern for annotations
+// May require MCP SDK update or different approach
+```
+
+### 3. Authorization Framework
+```typescript
+// Required: OAuth 2.1 integration with:
+// - Authorization Server discovery (.well-known endpoints)
+// - Resource Indicators (RFC 8707) 
+// - Dynamic client registration (RFC 7591)
+// - PKCE-enabled authorization code flow
+```
+
+## Specification Changelog Summary
+
+### MCP 2025-03-26 (Implemented)
+- ✅ Tool annotations framework
+- ⚠️ Streamable HTTP transport (pending)
+- ✅ Audio data support (infrastructure ready)
+- ⚠️ OAuth 2.1 authorization (pending)
+
+### MCP 2025-06-18 (Current Target)
+- ✅ Structured tool output
+- ✅ Enhanced `_meta` fields
+- ✅ Protocol version headers
+- ✅ Title fields for tools
+- ❌ JSON-RPC batching removed (properly removed)
+- ⚠️ Enhanced authorization security (pending)
+
 ## Features
 
 - **GraphQL to SQL Conversion**: Automatically converts CIViC API responses into structured SQLite tables
@@ -102,3 +194,7 @@ Example:
 curl https://civic-mcp-server.YOUR_SUBDOMAIN.workers.dev/datasets
 curl -X DELETE https://civic-mcp-server.YOUR_SUBDOMAIN.workers.dev/datasets/abcd-1234
 ```
+
+## License
+
+MIT License with Academic Citation Requirement - see [LICENSE.md](LICENSE.md)

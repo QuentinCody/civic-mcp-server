@@ -14,6 +14,8 @@ export interface RelationshipInfo {
 export interface ProcessingResult {
     success: boolean;
     message?: string;
+    data_access_id?: string;
+    processing_details?: ProcessingDetails;
     schemas?: Record<string, SchemaInfo>;
     table_count?: number;
     total_rows?: number;
@@ -24,6 +26,15 @@ export interface ProcessingResult {
         chunking_applied?: boolean;
         [key: string]: any;
     };
+}
+
+export interface ProcessingDetails {
+    table_count: number;
+    total_rows: number;
+    tables_created: string[];
+    schemas_processed: number;
+    pagination_info?: PaginationInfo | null;
+    error?: string;
 }
 
 export interface SchemaInfo {
