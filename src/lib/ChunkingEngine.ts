@@ -7,6 +7,13 @@ export interface ChunkMetadata {
 	contentType: 'json' | 'text';
 	compressed: boolean;
 	encoding?: string;
+	_meta?: {
+		schema_aware?: boolean;
+		chunking_strategy?: string;
+		compression_ratio?: number;
+		created_at?: string;
+		[key: string]: any;
+	};
 }
 
 export interface ChunkRecord {

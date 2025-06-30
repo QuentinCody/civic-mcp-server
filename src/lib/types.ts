@@ -18,6 +18,12 @@ export interface ProcessingResult {
     table_count?: number;
     total_rows?: number;
     pagination?: PaginationInfo;
+    _meta?: {
+        processing_time?: number;
+        schema_inference_method?: string;
+        chunking_applied?: boolean;
+        [key: string]: any;
+    };
 }
 
 export interface SchemaInfo {
@@ -25,6 +31,12 @@ export interface SchemaInfo {
     row_count: number;
     sample_data: any[];
     relationships?: Record<string, RelationshipInfo>;
+    _meta?: {
+        inferred_from?: string;
+        confidence_score?: number;
+        chunked_fields?: string[];
+        [key: string]: any;
+    };
 }
 
 export interface PaginationInfo {
@@ -35,6 +47,12 @@ export interface PaginationInfo {
     endCursor: string | null;
     startCursor: string | null;
     suggestion?: string;
+    _meta?: {
+        detected_from?: string;
+        cursor_type?: string;
+        page_size?: number;
+        [key: string]: any;
+    };
 }
 
 export interface EntityContext {

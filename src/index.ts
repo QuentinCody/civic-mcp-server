@@ -11,6 +11,15 @@ const API_CONFIG = {
 	version: "0.1.0",
 	description: "MCP Server for querying GraphQL APIs and converting responses to queryable SQLite tables",
 	
+	// MCP Specification Compliance
+	mcpSpecVersion: "2025-06-18",
+	features: {
+		structuredToolOutput: true,
+		metaFields: true,
+		protocolVersionHeaders: true,
+		titleFields: true
+	},
+	
 	// GraphQL API settings
 	endpoint: 'https://civicdb.org/api/graphql',
 	headers: {
@@ -22,10 +31,12 @@ const API_CONFIG = {
 	tools: {
 		graphql: {
 			name: "civic_graphql_query",
+			title: "CIViC GraphQL Query Tool",
 			description: "Executes GraphQL queries against CIViC API (V2), processes responses into SQLite tables, and returns metadata for subsequent SQL querying. Returns a data_access_id and schema information."
 		},
 		sql: {
-			name: "civic_query_sql", 
+			name: "civic_query_sql",
+			title: "SQLite Query Tool", 
 			description: "Execute read-only SQL queries against staged data. Use the data_access_id from civic_graphql_query to query the SQLite tables."
 		}
 	}
@@ -68,20 +79,32 @@ export class CivicMCP extends McpAgent {
                                         const graphqlResult = await this.executeGraphQLQuery(query, variables);
 
                                         if (this.shouldBypassStaging(graphqlResult, query)) {
+                                                // For bypassed queries (like introspection), return as structured JSON
                                                 return {
                                                         content: [{
                                                                 type: "text" as const,
                                                                 text: JSON.stringify(graphqlResult, null, 2)
-                                                        }]
+                                                        }],
+                                                        _meta: {
+                                                                bypassed: true,
+                                                                reason: "introspection_or_error_response"
+                                                        }
                                                 };
                                         }
 
                                         const stagingResult = await this.stageDataInDurableObject(graphqlResult);
+                                        
+                                        // Return structured response with metadata
                                         return {
                                                 content: [{
                                                         type: "text" as const,
                                                         text: JSON.stringify(stagingResult, null, 2)
-                                                }]
+                                                }],
+                                                _meta: {
+                                                        data_access_id: stagingResult.data_access_id,
+                                                        table_count: stagingResult.processing_details?.table_count || 0,
+                                                        total_rows: stagingResult.processing_details?.total_rows || 0
+                                                }
                                         };
 
                                 } catch (error) {
@@ -102,7 +125,18 @@ export class CivicMCP extends McpAgent {
 			async ({ data_access_id, sql }) => {
 				try {
 					const queryResult = await this.executeSQLQuery(data_access_id, sql);
-					return { content: [{ type: "text" as const, text: JSON.stringify(queryResult, null, 2) }] };
+					return { 
+						content: [{ 
+							type: "text" as const, 
+							text: JSON.stringify(queryResult, null, 2) 
+						}],
+						_meta: {
+							data_access_id,
+							query_type: queryResult.query_type || "select",
+							row_count: queryResult.row_count || 0,
+							chunked_content_resolved: queryResult.chunked_content_resolved || false
+						}
+					};
 				} catch (error) {
 					return this.createErrorResponse("SQL execution failed", error);
 				}
@@ -308,7 +342,12 @@ export class CivicMCP extends McpAgent {
 					error: message,
 					details: error instanceof Error ? error.message : String(error)
 				}, null, 2)
-			}]
+			}],
+			_meta: {
+				error: true,
+				error_type: error instanceof Error ? error.constructor.name : "UnknownError",
+				timestamp: new Date().toISOString()
+			}
 		};
 	}
 }
@@ -331,9 +370,26 @@ export default {
         async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
                 const url = new URL(request.url);
 
+                // Handle SSE transport with protocol version header support
                 if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
+                        // Extract protocol version from request headers
+                        const protocolVersion = request.headers.get("MCP-Protocol-Version");
+                        
                         // @ts-ignore - SSE transport handling
-                        return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
+                        const response = await CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
+                        
+                        // Add protocol version header to response if provided in request
+                        if (protocolVersion && response instanceof Response) {
+                                const headers = new Headers(response.headers);
+                                headers.set("MCP-Protocol-Version", protocolVersion);
+                                return new Response(response.body, {
+                                        status: response.status,
+                                        statusText: response.statusText,
+                                        headers
+                                });
+                        }
+                        
+                        return response;
                 }
 
                 if (url.pathname === "/datasets" && request.method === "GET") {
