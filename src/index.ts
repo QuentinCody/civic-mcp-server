@@ -110,7 +110,25 @@ export class CivicMCP extends McpAgent {
                         async ({ query, variables }) => {
                                 const startTime = Date.now();
                                 try {
-                                        const graphqlResult = await this.executeGraphQLQuery(query, variables);
+                                        let graphqlResult = await this.executeGraphQLQuery(query, variables);
+                                        
+                                        // If we get field errors, try auto-correction
+                                        if (this.hasFieldErrors(graphqlResult)) {
+                                                const correctedQuery = await this.attemptAutoCorrection(query, graphqlResult);
+                                                if (correctedQuery && correctedQuery !== query) {
+                                                        const correctedResult = await this.executeGraphQLQuery(correctedQuery, variables);
+                                                        if (!this.hasFieldErrors(correctedResult)) {
+                                                                // Success! Add metadata about the correction
+                                                                correctedResult._auto_corrected = {
+                                                                        original_query: query,
+                                                                        corrected_query: correctedQuery,
+                                                                        corrections_applied: true
+                                                                };
+                                                                graphqlResult = correctedResult;
+                                                        }
+                                                }
+                                        }
+                                        
                                         const executionTime = Date.now() - startTime;
 
                                         if (this.shouldBypassStaging(graphqlResult, query)) {
@@ -456,20 +474,30 @@ export class CivicMCP extends McpAgent {
 
 		let enhancedResponse = JSON.stringify(graphqlResult, null, 2);
 		
+		// Add auto-correction info if available
+		if (graphqlResult._auto_corrected) {
+			enhancedResponse += `\n\n✅ Auto-Correction Applied:\n`;
+			enhancedResponse += `Original query had field errors, successfully corrected automatically.\n`;
+			enhancedResponse += `Use the corrected query format for future requests.`;
+			return enhancedResponse;
+		}
+		
 		// Look for field errors and add suggestions
 		for (const error of graphqlResult.errors) {
 			if (error.extensions?.code === 'undefinedField' && 
 			    error.extensions?.typeName && 
 			    error.extensions?.fieldName) {
 				
-				const suggestions = await this.getFieldSuggestions(
-					error.extensions.typeName, 
-					error.extensions.fieldName
-				);
+				const [suggestions, typeStructure] = await Promise.all([
+					this.getFieldSuggestions(error.extensions.typeName, error.extensions.fieldName),
+					this.getTypeStructure(error.extensions.typeName)
+				]);
+				
+				enhancedResponse += `\n\n📋 Type Structure:\n${typeStructure}`;
 				
 				if (suggestions.length > 0) {
-					enhancedResponse += `\n\n🔍 Field Suggestions for type '${error.extensions.typeName}':\n`;
-					enhancedResponse += `Available fields: ${suggestions.join(', ')}`;
+					enhancedResponse += `\n\n🔍 Suggested fields similar to '${error.extensions.fieldName}':\n`;
+					enhancedResponse += `${suggestions.join(', ')}`;
 				}
 			}
 		}
@@ -523,6 +551,108 @@ export class CivicMCP extends McpAgent {
 		
 		return [];
 	}
+
+	// Get basic type structure for schema hints
+	private async getTypeStructure(typeName: string): Promise<string> {
+		try {
+			const introspectionQuery = `
+				query GetTypeStructure($typeName: String!) {
+					__type(name: $typeName) {
+						name
+						kind
+						description
+						fields {
+							name
+							type {
+								name
+								kind
+								ofType {
+									name
+									kind
+								}
+							}
+						}
+					}
+				}
+			`;
+			
+			const result = await this.executeGraphQLQuery(introspectionQuery, { typeName });
+			
+			if (result.data?.__type) {
+				const type = result.data.__type;
+				let structure = `${type.name} (${type.kind})`;
+				
+				if (type.description) {
+					structure += `\n  Description: ${type.description}`;
+				}
+				
+				if (type.fields && type.fields.length > 0) {
+					structure += '\n  Fields:';
+					// Show first 15 fields with their types
+					const fieldsToShow = type.fields.slice(0, 15);
+					for (const field of fieldsToShow) {
+						const fieldType = this.formatFieldType(field.type);
+						structure += `\n    ${field.name}: ${fieldType}`;
+					}
+					
+					if (type.fields.length > 15) {
+						structure += `\n    ... and ${type.fields.length - 15} more fields`;
+					}
+				}
+				
+				return structure;
+			}
+		} catch (error) {
+			// Fallback to static structure
+			return this.getStaticTypeStructure(typeName);
+		}
+		
+		return `Type '${typeName}' structure unavailable`;
+	}
+
+	// Format GraphQL field type for display
+	private formatFieldType(type: any): string {
+		if (!type) return 'Unknown';
+		
+		if (type.kind === 'NON_NULL') {
+			return `${this.formatFieldType(type.ofType)}!`;
+		}
+		
+		if (type.kind === 'LIST') {
+			return `[${this.formatFieldType(type.ofType)}]`;
+		}
+		
+		return type.name || type.kind;
+	}
+
+	// Static type structure as fallback
+	private getStaticTypeStructure(typeName: string): string {
+		const staticStructures: Record<string, string> = {
+			'Gene': `Gene (OBJECT)
+  Fields:
+    id: Int!
+    name: String!
+    entrezId: Int
+    description: String
+    variants: [Variant!]!`,
+			'Variant': `Variant (OBJECT) 
+  Fields:
+    id: Int!
+    name: String!
+    variantTypes: [VariantType!]!
+    singleVariantMolecularProfile: MolecularProfile`,
+			'EvidenceItem': `EvidenceItem (OBJECT)
+  Fields:
+    id: Int!
+    description: String!
+    evidenceLevel: EvidenceLevel
+    evidenceType: EvidenceType
+    significance: EvidenceSignificance
+    status: EvidenceStatus!`
+		};
+		
+		return staticStructures[typeName] || `${typeName} (OBJECT)\n  Basic type structure unavailable`;
+	}
 	
 	// Calculate string similarity (simple Levenshtein-based approach)
 	private calculateSimilarity(str1: string, str2: string): number {
@@ -561,6 +691,130 @@ export class CivicMCP extends McpAgent {
 		};
 		
 		return commonFields[typeName] || ['id', 'name', 'description'];
+	}
+
+	// ========================================
+	// AUTO-CORRECTION FUNCTIONALITY
+	// ========================================
+	
+	// Check if GraphQL result has field errors
+	private hasFieldErrors(result: any): boolean {
+		return result?.errors?.some((error: any) => 
+			error.extensions?.code === 'undefinedField'
+		) || false;
+	}
+
+	// Attempt to auto-correct field names in query
+	private async attemptAutoCorrection(originalQuery: string, errorResult: any): Promise<string | null> {
+		if (!errorResult?.errors) return null;
+
+		let correctedQuery = originalQuery;
+		let hasCorrections = false;
+
+		for (const error of errorResult.errors) {
+			if (error.extensions?.code === 'undefinedField' && 
+			    error.extensions?.typeName && 
+			    error.extensions?.fieldName) {
+				
+				const invalidField = error.extensions.fieldName;
+				const typeName = error.extensions.typeName;
+				
+				// Try various field name transformations
+				const corrections = await this.generateFieldCorrections(invalidField, typeName);
+				
+				if (corrections.length > 0) {
+					// Use the first (most likely) correction
+					const bestCorrection = corrections[0];
+					correctedQuery = this.replaceFieldInQuery(correctedQuery, invalidField, bestCorrection);
+					hasCorrections = true;
+				}
+			}
+		}
+
+		return hasCorrections ? correctedQuery : null;
+	}
+
+	// Generate possible field name corrections
+	private async generateFieldCorrections(invalidField: string, typeName: string): Promise<string[]> {
+		const transformations = [
+			// Case transformations
+			this.toCamelCase(invalidField),
+			this.toPascalCase(invalidField),
+			this.toSnakeCase(invalidField),
+			
+			// Common GraphQL naming patterns
+			this.pluralize(invalidField),
+			this.singularize(invalidField),
+			
+			// Add common prefixes/suffixes
+			`${invalidField}s`,
+			`${invalidField}Id`,
+			`${invalidField}Type`,
+			`${invalidField}Name`,
+			
+			// Remove common suffixes
+			invalidField.replace(/Id$/, ''),
+			invalidField.replace(/Type$/, ''),
+			invalidField.replace(/Name$/, ''),
+			invalidField.replace(/s$/, ''),
+		];
+
+		// Get actual field names for this type to validate against
+		const validFields = await this.getFieldSuggestions(typeName);
+		
+		// Filter transformations to only include valid fields
+		const validCorrections = transformations.filter(transformation => 
+			transformation !== invalidField && validFields.includes(transformation)
+		);
+
+		// Sort by similarity to original field name
+		return validCorrections.sort((a, b) => 
+			this.calculateSimilarity(b, invalidField) - this.calculateSimilarity(a, invalidField)
+		);
+	}
+
+	// Simple field replacement in GraphQL query
+	private replaceFieldInQuery(query: string, oldField: string, newField: string): string {
+		// Simple regex replacement - could be more sophisticated
+		const fieldRegex = new RegExp(`\\b${oldField}\\b`, 'g');
+		return query.replace(fieldRegex, newField);
+	}
+
+	// String transformation utilities
+	private toCamelCase(str: string): string {
+		return str.replace(/_(\w)/g, (_, letter) => letter.toUpperCase());
+	}
+
+	private toPascalCase(str: string): string {
+		const camel = this.toCamelCase(str);
+		return camel.charAt(0).toUpperCase() + camel.slice(1);
+	}
+
+	private toSnakeCase(str: string): string {
+		return str.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+	}
+
+	private pluralize(str: string): string {
+		if (str.endsWith('y')) {
+			return str.slice(0, -1) + 'ies';
+		}
+		if (str.endsWith('s') || str.endsWith('x') || str.endsWith('z')) {
+			return str + 'es';
+		}
+		return str + 's';
+	}
+
+	private singularize(str: string): string {
+		if (str.endsWith('ies')) {
+			return str.slice(0, -3) + 'y';
+		}
+		if (str.endsWith('es')) {
+			return str.slice(0, -2);
+		}
+		if (str.endsWith('s') && !str.endsWith('ss')) {
+			return str.slice(0, -1);
+		}
+		return str;
 	}
 }
 
