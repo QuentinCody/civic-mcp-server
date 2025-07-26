@@ -114,11 +114,12 @@ export class CivicMCP extends McpAgent {
                                         const executionTime = Date.now() - startTime;
 
                                         if (this.shouldBypassStaging(graphqlResult, query)) {
-                                                // For bypassed queries (like introspection), return as structured JSON
+                                                // For bypassed queries, enhance error responses with field suggestions
+                                                const responseText = await this.enhanceGraphQLErrorResponse(graphqlResult);
                                                 return {
                                                         content: [{
                                                                 type: "text" as const,
-                                                                text: JSON.stringify(graphqlResult, null, 2)
+                                                                text: responseText
                                                         }],
                                                         _meta: {
                                                                 bypassed: true,
@@ -126,7 +127,8 @@ export class CivicMCP extends McpAgent {
                                                                 execution_time_ms: executionTime,
                                                                 query_type: "graphql",
                                                                 has_errors: !!(graphqlResult.errors && graphqlResult.errors.length > 0),
-                                                                is_introspection: this.isIntrospectionQuery(query)
+                                                                is_introspection: this.isIntrospectionQuery(query),
+                                                                enhanced_errors: !!(graphqlResult.errors && graphqlResult.errors.length > 0)
                                                         }
                                                 };
                                         }
@@ -442,6 +444,123 @@ export class CivicMCP extends McpAgent {
 				timestamp: new Date().toISOString()
 			}
 		};
+	}
+
+	// ========================================
+	// ENHANCED ERROR RESPONSE WITH FIELD SUGGESTIONS
+	// ========================================
+	private async enhanceGraphQLErrorResponse(graphqlResult: any): Promise<string> {
+		if (!graphqlResult.errors || !Array.isArray(graphqlResult.errors)) {
+			return JSON.stringify(graphqlResult, null, 2);
+		}
+
+		let enhancedResponse = JSON.stringify(graphqlResult, null, 2);
+		
+		// Look for field errors and add suggestions
+		for (const error of graphqlResult.errors) {
+			if (error.extensions?.code === 'undefinedField' && 
+			    error.extensions?.typeName && 
+			    error.extensions?.fieldName) {
+				
+				const suggestions = await this.getFieldSuggestions(
+					error.extensions.typeName, 
+					error.extensions.fieldName
+				);
+				
+				if (suggestions.length > 0) {
+					enhancedResponse += `\n\n🔍 Field Suggestions for type '${error.extensions.typeName}':\n`;
+					enhancedResponse += `Available fields: ${suggestions.join(', ')}`;
+				}
+			}
+		}
+		
+		return enhancedResponse;
+	}
+
+	// Get field suggestions for a GraphQL type
+	private async getFieldSuggestions(typeName: string, invalidField?: string): Promise<string[]> {
+		try {
+			// Use introspection to get valid fields for the type
+			const introspectionQuery = `
+				query GetTypeFields($typeName: String!) {
+					__type(name: $typeName) {
+						fields {
+							name
+							type {
+								name
+								kind
+							}
+						}
+					}
+				}
+			`;
+			
+			const result = await this.executeGraphQLQuery(introspectionQuery, { typeName });
+			
+			if (result.data?.__type?.fields) {
+				const fields = result.data.__type.fields.map((field: any) => field.name);
+				
+				// If we have an invalid field, try to find similar ones
+				if (invalidField) {
+					const similar = fields.filter((field: string) => 
+						field.toLowerCase().includes(invalidField.toLowerCase()) ||
+						invalidField.toLowerCase().includes(field.toLowerCase()) ||
+						this.calculateSimilarity(field, invalidField) > 0.6
+					);
+					
+					if (similar.length > 0) {
+						return similar.slice(0, 5); // Return top 5 similar fields
+					}
+				}
+				
+				// Return first 10 available fields as fallback
+				return fields.slice(0, 10);
+			}
+		} catch (introspectionError) {
+			// Fallback to static suggestions if introspection fails
+			return this.getStaticFieldSuggestions(typeName);
+		}
+		
+		return [];
+	}
+	
+	// Calculate string similarity (simple Levenshtein-based approach)
+	private calculateSimilarity(str1: string, str2: string): number {
+		const len1 = str1.length;
+		const len2 = str2.length;
+		const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(null));
+		
+		for (let i = 0; i <= len1; i++) matrix[0][i] = i;
+		for (let j = 0; j <= len2; j++) matrix[j][0] = j;
+		
+		for (let j = 1; j <= len2; j++) {
+			for (let i = 1; i <= len1; i++) {
+				const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+				matrix[j][i] = Math.min(
+					matrix[j][i - 1] + 1,
+					matrix[j - 1][i] + 1,
+					matrix[j - 1][i - 1] + cost
+				);
+			}
+		}
+		
+		const distance = matrix[len2][len1];
+		return 1 - distance / Math.max(len1, len2);
+	}
+	
+	// Static field suggestions as fallback
+	private getStaticFieldSuggestions(typeName: string): string[] {
+		const commonFields: Record<string, string[]> = {
+			'Gene': ['id', 'name', 'entrezId', 'description', 'variants'],
+			'Variant': ['id', 'name', 'variantTypes', 'singleVariantMolecularProfile'],
+			'EvidenceItem': ['id', 'description', 'evidenceLevel', 'evidenceType', 'significance', 'status'],
+			'Disease': ['id', 'name', 'doid', 'displayName'],
+			'Therapy': ['id', 'name', 'ncitId'],
+			'User': ['id', 'name', 'email', 'role'],
+			'Organization': ['id', 'name', 'description']
+		};
+		
+		return commonFields[typeName] || ['id', 'name', 'description'];
 	}
 }
 
