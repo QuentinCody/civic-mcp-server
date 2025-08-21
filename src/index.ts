@@ -84,6 +84,17 @@ interface CivicEnv {
 // CORE MCP SERVER CLASS - Reusable template
 // ========================================
 
+// Environment storage for tool access
+let currentEnvironment: Env | null = null;
+
+function setGlobalEnvironment(env: Env) {
+	currentEnvironment = env;
+}
+
+function getGlobalEnvironment(): Env | null {
+	return currentEnvironment;
+}
+
 export class CivicMCP extends McpAgent {
 	server = new McpServer({
 		name: API_CONFIG.name,
@@ -778,40 +789,23 @@ interface ExecutionContext {
 }
 
 export default {
-        async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-                const url = new URL(request.url);
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+		const url = new URL(request.url);
+		setGlobalEnvironment(env);
 
-                // Handle new Streamable HTTP transport (MCP 2025-03-26 specification)
-                if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-                        // Extract protocol version from request headers (MCP 2025-06-18 requirement)
-                        const protocolVersion = request.headers.get("MCP-Protocol-Version");
-                        
-                        // Use CivicMCP.serve() for Streamable HTTP transport
-                        const response = await CivicMCP.serve("/mcp").fetch(request, env, ctx);
-                        
-                        // Add protocol version header to response if provided in request
-                        if (protocolVersion && response instanceof Response) {
-                                const headers = new Headers(response.headers);
-                                headers.set("MCP-Protocol-Version", protocolVersion);
-                                return new Response(response.body, {
-                                        status: response.status,
-                                        statusText: response.statusText,
-                                        headers
-                                });
-                        }
-                        
-                        return response;
-                }
+		// Handle standard MCP requests
+		if (url.pathname.startsWith("/mcp")) {
+			// @ts-ignore
+			return CivicMCP.serve("/mcp").fetch(request, env, ctx);
+		}
 
-                // Handle SSE transport with protocol version header support (legacy support)
-                // TODO: Migrate clients to use /mcp endpoint with Streamable HTTP transport
-                if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
+		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
 			// @ts-ignore - SSE transport handling
 			return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
 		}
 
 		return new Response(
-			`${API_CONFIG.name} - Available on /sse endpoint`,
+			`${API_CONFIG.name} - Available on /sse and /mcp endpoints`,
 			{ status: 404, headers: { "Content-Type": "text/plain" } }
 		);
 	},
