@@ -51,7 +51,6 @@ export class JsonToSqlDO extends DurableObject {
 			return {
 				success: true,
 				message: "Data processed successfully",
-				data_access_id: this.extractDataAccessId(),
 				processing_details: processingDetails,
 				...metadata
 			};
@@ -60,7 +59,6 @@ export class JsonToSqlDO extends DurableObject {
 			return {
 				success: false,
 				message: error instanceof Error ? error.message : "Processing failed",
-				data_access_id: this.extractDataAccessId(),
 				processing_details: {
 					table_count: 0,
 					total_rows: 0,
@@ -70,12 +68,6 @@ export class JsonToSqlDO extends DurableObject {
 				}
 			};
 		}
-	}
-
-	private extractDataAccessId(): string {
-		// Extract the access ID from the Durable Object namespace ID
-		// The ID is set when the DO is created in stageDataInDurableObject
-		return this.ctx.id.toString();
 	}
 
 	async executeSql(sqlQuery: string): Promise<any> {

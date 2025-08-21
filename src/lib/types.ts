@@ -14,7 +14,6 @@ export interface RelationshipInfo {
 export interface ProcessingResult {
     success: boolean;
     message?: string;
-    data_access_id?: string;
     processing_details?: ProcessingDetails;
     schemas?: Record<string, SchemaInfo>;
     table_count?: number;

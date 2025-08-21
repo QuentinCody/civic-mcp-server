@@ -10,17 +10,10 @@ const API_CONFIG = {
 	name: "CivicExplorer",
 	version: "0.1.0",
 	description: "MCP Server for querying GraphQL APIs and converting responses to queryable SQLite tables",
-	
-	// MCP Specification Compliance
-	mcpSpecVersion: "2025-06-18",
-	features: {
-		structuredToolOutput: true,
-		metaFields: true,
-		protocolVersionHeaders: true,
-		titleFields: true,
-		toolAnnotations: true
-	},
-	
+
+	// Staging configuration
+	stagingThresholdBytes: 1024, // Stage responses larger than 1KB
+
 	// GraphQL API settings
 	endpoint: 'https://civicdb.org/api/graphql',
 	headers: {
@@ -107,79 +100,31 @@ export class CivicMCP extends McpAgent {
 				query: z.string().describe("GraphQL query string"),
 				variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
 			},
-                        async ({ query, variables }) => {
-                                const startTime = Date.now();
-                                try {
-                                        let graphqlResult = await this.executeGraphQLQuery(query, variables);
-                                        
-                                        // If we get field errors, try auto-correction
-                                        if (this.hasFieldErrors(graphqlResult)) {
-                                                const correctedQuery = await this.attemptAutoCorrection(query, graphqlResult);
-                                                if (correctedQuery && correctedQuery !== query) {
-                                                        const correctedResult = await this.executeGraphQLQuery(correctedQuery, variables);
-                                                        if (!this.hasFieldErrors(correctedResult)) {
-                                                                // Success! Add metadata about the correction
-                                                                correctedResult._auto_corrected = {
-                                                                        original_query: query,
-                                                                        corrected_query: correctedQuery,
-                                                                        corrections_applied: true
-                                                                };
-                                                                graphqlResult = correctedResult;
-                                                        }
-                                                }
-                                        }
-                                        
-                                        const executionTime = Date.now() - startTime;
+					async ({ query, variables }) => {
+						try {
+							const graphqlResult = await this.executeGraphQLQuery(query, variables);
 
-                                        if (this.shouldBypassStaging(graphqlResult, query)) {
-                                                // For bypassed queries, enhance error responses with field suggestions
-                                                const responseText = await this.enhanceGraphQLErrorResponse(graphqlResult);
-                                                return {
-                                                        content: [{
-                                                                type: "text" as const,
-                                                                text: responseText
-                                                        }],
-                                                        _meta: {
-                                                                bypassed: true,
-                                                                reason: this.getBypassReason(graphqlResult, query),
-                                                                execution_time_ms: executionTime,
-                                                                query_type: "graphql",
-                                                                has_errors: !!(graphqlResult.errors && graphqlResult.errors.length > 0),
-                                                                is_introspection: this.isIntrospectionQuery(query),
-                                                                enhanced_errors: !!(graphqlResult.errors && graphqlResult.errors.length > 0)
-                                                        }
-                                                };
-                                        }
+							if (graphqlResult.errors && !graphqlResult.data) {
+								return { content: [{ type: "text" as const, text: JSON.stringify(graphqlResult, null, 2) }] };
+							}
 
-                                        const stagingResult = await this.stageDataInDurableObject(graphqlResult);
-                                        
-                                        // Return structured response with comprehensive metadata
-                                        return {
-                                                content: [{
-                                                        type: "text" as const,
-                                                        text: JSON.stringify(stagingResult, null, 2)
-                                                }],
-                                                _meta: {
-                                                        data_access_id: stagingResult.data_access_id,
-                                                        query_type: "graphql",
-                                                        execution_time_ms: executionTime,
-                                                        staging_bypassed: false,
-                                                        tables_created: stagingResult.processing_details?.tables_created || [],
-                                                        table_count: stagingResult.processing_details?.table_count || 0,
-                                                        total_rows: stagingResult.processing_details?.total_rows || 0,
-                                                        has_errors: false,
-                                                        query_size_bytes: JSON.stringify(graphqlResult).length
-                                                }
-                                        };
+							// Intelligent Staging Logic
+							const responseString = JSON.stringify(graphqlResult);
+							if (responseString.length > API_CONFIG.stagingThresholdBytes) {
+								// Response is large, stage it
+								const stagingResult = await this.stageDataInDurableObject(graphqlResult);
+								return { content: [{ type: "text" as const, text: JSON.stringify(stagingResult, null, 2) }] };
+							} else {
+								// Response is small, return it directly
+								return { content: [{ type: "text" as const, text: responseString }] };
+							}
+						} catch (error) {
+							return this.createErrorResponse("GraphQL execution failed", error);
+						}
+					}
+				);
 
-                                } catch (error) {
-                                        const executionTime = Date.now() - startTime;
-                                        return this.createErrorResponse("GraphQL execution failed", error, executionTime);
-                                }
-                        }
-                );
-
-		// Tool #2: SQL querying against staged data
+				// Tool #2: SQL querying against staged data
 		this.server.tool(
 			API_CONFIG.tools.sql.name,
 			API_CONFIG.tools.sql.description,
@@ -861,109 +806,15 @@ export default {
                 // Handle SSE transport with protocol version header support (legacy support)
                 // TODO: Migrate clients to use /mcp endpoint with Streamable HTTP transport
                 if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-                        // Extract protocol version from request headers (MCP 2025-06-18 requirement)
-                        const protocolVersion = request.headers.get("MCP-Protocol-Version");
-                        
-                        // Note: Legacy SSE transport implementation
-                        // New clients should use /mcp endpoint with Streamable HTTP transport
-                        // @ts-ignore - SSE transport handling - legacy support
-                        const response = await CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
-                        
-                        // Add protocol version header to response if provided in request
-                        if (protocolVersion && response instanceof Response) {
-                                const headers = new Headers(response.headers);
-                                headers.set("MCP-Protocol-Version", protocolVersion);
-                                return new Response(response.body, {
-                                        status: response.status,
-                                        statusText: response.statusText,
-                                        headers
-                                });
-                        }
-                        
-                        return response;
-                }
+			// @ts-ignore - SSE transport handling
+			return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
+		}
 
-                if (url.pathname === "/datasets" && request.method === "GET") {
-                        const list = Array.from(datasetRegistry.entries()).map(([id, info]) => ({
-                                data_access_id: id,
-                                ...info
-                        }));
-                        return new Response(JSON.stringify({ datasets: list }, null, 2), {
-                                headers: { "Content-Type": "application/json" }
-                        });
-                }
-
-                if (url.pathname.startsWith("/datasets/") && request.method === "DELETE") {
-                        const id = url.pathname.split("/")[2];
-                        if (!id || !datasetRegistry.has(id)) {
-                                return new Response(JSON.stringify({ error: "Dataset not found" }), {
-                                        status: 404,
-                                        headers: { "Content-Type": "application/json" }
-                                });
-                        }
-
-                        const doId = env.JSON_TO_SQL_DO.idFromName(id);
-                        const stub = env.JSON_TO_SQL_DO.get(doId);
-                        const resp = await stub.fetch("http://do/delete", { method: "DELETE" });
-                        if (resp.ok) {
-                                datasetRegistry.delete(id);
-                                return new Response(JSON.stringify({ success: true }), {
-                                        headers: { "Content-Type": "application/json" }
-                                });
-                        }
-
-                        const text = await resp.text();
-                        return new Response(JSON.stringify({ success: false, error: text }), {
-                                status: 500,
-                                headers: { "Content-Type": "application/json" }
-                        });
-                }
-
-                // Schema initialization endpoint
-                if (url.pathname === "/initialize-schema" && request.method === "POST") {
-                        const globalDoId = env.JSON_TO_SQL_DO.idFromName("global-schema-config");
-                        const stub = env.JSON_TO_SQL_DO.get(globalDoId);
-                        const resp = await stub.fetch("http://do/initialize-schema", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: await request.text()
-                        });
-                        return new Response(await resp.text(), {
-                                status: resp.status,
-                                headers: { "Content-Type": "application/json" }
-                        });
-                }
-
-                // Chunking stats endpoint
-                if (url.pathname === "/chunking-stats" && request.method === "GET") {
-                        const globalDoId = env.JSON_TO_SQL_DO.idFromName("global-schema-config");
-                        const stub = env.JSON_TO_SQL_DO.get(globalDoId);
-                        const resp = await stub.fetch("http://do/chunking-stats");
-                        return new Response(await resp.text(), {
-                                status: resp.status,
-                                headers: { "Content-Type": "application/json" }
-                        });
-                }
-
-                // Chunking analysis endpoint
-                if (url.pathname === "/chunking-analysis" && request.method === "GET") {
-                        const globalDoId = env.JSON_TO_SQL_DO.idFromName("global-schema-config");
-                        const stub = env.JSON_TO_SQL_DO.get(globalDoId);
-                        const resp = await stub.fetch("http://do/chunking-analysis");
-                        return new Response(await resp.text(), {
-                                status: resp.status,
-                                headers: { "Content-Type": "application/json" }
-                        });
-                }
-
-                return new Response(
-                        `${API_CONFIG.name} - MCP Server v${API_CONFIG.mcpSpecVersion}
-Available endpoints:
-- /mcp (Streamable HTTP transport - recommended)
-- /sse (SSE transport - legacy support)`,
-                        { status: 404, headers: { "Content-Type": "text/plain" } }
-                );
-        },
+		return new Response(
+			`${API_CONFIG.name} - Available on /sse endpoint`,
+			{ status: 404, headers: { "Content-Type": "text/plain" } }
+		);
+	},
 };
 
 export { CivicMCP as MyMCP };
