@@ -836,15 +836,37 @@ export default {
         async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
                 const url = new URL(request.url);
 
-                // Handle SSE transport with protocol version header support
-                // TODO: Update to Streamable HTTP transport per MCP 2025-03-26 specification
+                // Handle new Streamable HTTP transport (MCP 2025-03-26 specification)
+                if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+                        // Extract protocol version from request headers (MCP 2025-06-18 requirement)
+                        const protocolVersion = request.headers.get("MCP-Protocol-Version");
+                        
+                        // Use CivicMCP.serve() for Streamable HTTP transport
+                        const response = await CivicMCP.serve("/mcp").fetch(request, env, ctx);
+                        
+                        // Add protocol version header to response if provided in request
+                        if (protocolVersion && response instanceof Response) {
+                                const headers = new Headers(response.headers);
+                                headers.set("MCP-Protocol-Version", protocolVersion);
+                                return new Response(response.body, {
+                                        status: response.status,
+                                        statusText: response.statusText,
+                                        headers
+                                });
+                        }
+                        
+                        return response;
+                }
+
+                // Handle SSE transport with protocol version header support (legacy support)
+                // TODO: Migrate clients to use /mcp endpoint with Streamable HTTP transport
                 if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
                         // Extract protocol version from request headers (MCP 2025-06-18 requirement)
                         const protocolVersion = request.headers.get("MCP-Protocol-Version");
                         
-                        // Note: Current implementation uses SSE transport 
-                        // Should be updated to use Streamable HTTP transport as per MCP 2025-03-26
-                        // @ts-ignore - SSE transport handling - needs architectural update
+                        // Note: Legacy SSE transport implementation
+                        // New clients should use /mcp endpoint with Streamable HTTP transport
+                        // @ts-ignore - SSE transport handling - legacy support
                         const response = await CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
                         
                         // Add protocol version header to response if provided in request
@@ -935,7 +957,10 @@ export default {
                 }
 
                 return new Response(
-                        `${API_CONFIG.name} - MCP Server v${API_CONFIG.mcpSpecVersion} - Available on /sse endpoint`,
+                        `${API_CONFIG.name} - MCP Server v${API_CONFIG.mcpSpecVersion}
+Available endpoints:
+- /mcp (Streamable HTTP transport - recommended)
+- /sse (SSE transport - legacy support)`,
                         { status: 404, headers: { "Content-Type": "text/plain" } }
                 );
         },
