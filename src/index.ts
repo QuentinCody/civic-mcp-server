@@ -64,6 +64,48 @@ const API_CONFIG = {
 				side_effects: [],
 				resource_usage: "low"
 			}
+		},
+		variant_assertions: {
+			name: 'get_variant_assertions',
+			description: `Retrieve CIViC assertions for a molecular profile by ID or name. Returns assertion data directly without SQLite staging.
+			
+🏷️ TOOL ANNOTATIONS:
+• Type: Non-destructive, Idempotent, Open-world
+• Interactions: Direct CIViC GraphQL API calls
+• Side Effects: None (direct response, bypasses staging)
+• Caching: None (fresh data on each query)
+• Rate Limits: Subject to CIViC API rate limits
+• MCP 2025-06-18 Compliant: ✅`,
+			
+			annotations: {
+				destructive: false,
+				idempotent: true,
+				cacheable: false,
+				world_interaction: "open",
+				side_effects: ["external_api_calls"],
+				resource_usage: "network_io_light"
+			}
+		},
+		variant_evidence: {
+			name: 'get_variant_evidence',
+			description: `Retrieve up to 10 evidence items for a CIViC molecular profile by ID or name. Returns evidence data directly without SQLite staging.
+			
+🏷️ TOOL ANNOTATIONS:
+• Type: Non-destructive, Idempotent, Open-world
+• Interactions: Direct CIViC GraphQL API calls
+• Side Effects: None (direct response, bypasses staging)
+• Caching: None (fresh data on each query)
+• Rate Limits: Subject to CIViC API rate limits
+• MCP 2025-06-18 Compliant: ✅`,
+			
+			annotations: {
+				destructive: false,
+				idempotent: true,
+				cacheable: false,
+				world_interaction: "open",
+				side_effects: ["external_api_calls"],
+				resource_usage: "network_io_light"
+			}
 		}
 	}
 };
@@ -111,7 +153,7 @@ export class CivicMCP extends McpAgent {
 				query: z.string().describe("GraphQL query string"),
 				variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
 			},
-					async ({ query, variables }) => {
+			async ({ query, variables }) => {
 						try {
 							const graphqlResult = await this.executeGraphQLQuery(query, variables);
 
@@ -169,6 +211,86 @@ export class CivicMCP extends McpAgent {
 				} catch (error) {
 					const executionTime = Date.now() - startTime;
 					return this.createErrorResponse("SQL execution failed", error, executionTime);
+				}
+			}
+		);
+
+		// Tool #3: Get variant assertions (bypasses staging)
+		this.server.tool(
+			API_CONFIG.tools.variant_assertions.name,
+			API_CONFIG.tools.variant_assertions.description,
+			{
+				molecular_profile_id: z.number().optional().describe("CIViC molecular profile ID (numeric)"),
+				molecular_profile_name: z.string().optional().describe("CIViC molecular profile name (string)")
+			},
+			async ({ molecular_profile_id, molecular_profile_name }) => {
+				const startTime = Date.now();
+				try {
+					if (!molecular_profile_id && !molecular_profile_name) {
+						throw new Error("Either molecular_profile_id or molecular_profile_name must be provided");
+					}
+
+					const result = await this.getVariantAssertions(molecular_profile_id, molecular_profile_name);
+					const executionTime = Date.now() - startTime;
+					
+					return { 
+						content: [{ 
+							type: "text" as const, 
+							text: JSON.stringify(result, null, 2) 
+						}],
+						_meta: {
+							tool_type: "variant_assertions",
+							execution_time_ms: executionTime,
+							molecular_profile_id,
+							molecular_profile_name,
+							assertion_count: result.data?.molecularProfiles?.nodes?.[0]?.assertions?.nodes?.length || 0,
+							timestamp: new Date().toISOString()
+						}
+					};
+				} catch (error) {
+					const executionTime = Date.now() - startTime;
+					return this.createErrorResponse("Variant assertions retrieval failed", error, executionTime);
+				}
+			}
+		);
+
+		// Tool #4: Get variant evidence (bypasses staging)
+		this.server.tool(
+			API_CONFIG.tools.variant_evidence.name,
+			API_CONFIG.tools.variant_evidence.description,
+			{
+				molecular_profile_id: z.number().optional().describe("CIViC molecular profile ID (numeric)"),
+				molecular_profile_name: z.string().optional().describe("CIViC molecular profile name (string)"),
+				limit: z.number().max(50).default(10).describe("Maximum number of evidence items to return (max 50, default 10)")
+			},
+			async ({ molecular_profile_id, molecular_profile_name, limit = 10 }) => {
+				const startTime = Date.now();
+				try {
+					if (!molecular_profile_id && !molecular_profile_name) {
+						throw new Error("Either molecular_profile_id or molecular_profile_name must be provided");
+					}
+
+					const result = await this.getVariantEvidence(molecular_profile_id, molecular_profile_name, limit);
+					const executionTime = Date.now() - startTime;
+					
+					return { 
+						content: [{ 
+							type: "text" as const, 
+							text: JSON.stringify(result, null, 2) 
+						}],
+						_meta: {
+							tool_type: "variant_evidence",
+							execution_time_ms: executionTime,
+							molecular_profile_id,
+							molecular_profile_name,
+							evidence_count: result.data?.evidenceItems?.nodes?.length || 0,
+							limit_requested: limit,
+							timestamp: new Date().toISOString()
+						}
+					};
+				} catch (error) {
+					const executionTime = Date.now() - startTime;
+					return this.createErrorResponse("Variant evidence retrieval failed", error, executionTime);
 				}
 			}
 		);
@@ -396,6 +518,228 @@ export class CivicMCP extends McpAgent {
 
                 return response.ok;
         }
+
+	// ========================================
+	// VARIANT-SPECIFIC QUERY METHODS - Direct GraphQL (bypassing staging)
+	// ========================================
+	
+	private async getVariantAssertions(molecularProfileId?: number, molecularProfileName?: string): Promise<any> {
+		let query: string;
+		let variables: Record<string, any> = {};
+		
+		if (molecularProfileId) {
+			query = `
+				query GetAssertionsByProfileId($id: Int!) {
+					molecularProfile(id: $id) {
+						id
+						name
+						assertions {
+							nodes {
+								id
+								name
+								summary
+								description
+								assertionType
+								assertionDirection
+								significance
+								status
+								ampLevel
+								evidenceItems {
+									id
+									name
+									description
+									evidenceLevel
+									evidenceType
+									significance
+									status
+								}
+								disease {
+									id
+									name
+									displayName
+								}
+								therapies {
+									id
+									name
+								}
+								molecularProfile {
+									id
+									name
+								}
+								acmgCodes {
+									code
+									description
+								}
+							}
+						}
+					}
+				}
+			`;
+			variables.id = molecularProfileId;
+		} else if (molecularProfileName) {
+			query = `
+				query GetAssertionsByProfileName($name: String!) {
+					molecularProfiles(name: $name) {
+						nodes {
+							id
+							name
+							assertions {
+								nodes {
+									id
+									name
+									summary
+									description
+									assertionType
+									assertionDirection
+									significance
+									status
+									ampLevel
+									evidenceItems {
+										id
+										name
+										description
+										evidenceLevel
+										evidenceType
+										significance
+										status
+									}
+									disease {
+										id
+										name
+										displayName
+									}
+									therapies {
+										id
+										name
+									}
+									molecularProfile {
+										id
+										name
+									}
+									acmgCodes {
+										code
+										description
+									}
+								}
+							}
+						}
+					}
+				}
+			`;
+			variables.name = molecularProfileName;
+		} else {
+			throw new Error("Either molecularProfileId or molecularProfileName must be provided");
+		}
+		
+		return await this.executeGraphQLQuery(query, variables);
+	}
+
+	private async getVariantEvidence(molecularProfileId?: number, molecularProfileName?: string, limit: number = 10): Promise<any> {
+		let query: string;
+		let variables: Record<string, any> = { first: Math.min(limit, 50) };
+		
+		if (molecularProfileId) {
+			query = `
+				query GetEvidenceByProfileId($profileId: Int!, $first: Int!) {
+					evidenceItems(molecularProfileId: $profileId, first: $first) {
+						totalCount
+						nodes {
+							id
+							name
+							description
+							evidenceLevel
+							evidenceType
+							significance
+							evidenceDirection
+							status
+							source {
+								id
+								sourceType
+								citation
+								publicationDate
+							}
+							disease {
+								id
+								name
+								displayName
+								doid
+							}
+							therapies {
+								id
+								name
+								ncitId
+							}
+							molecularProfile {
+								id
+								name
+							}
+							variantOrigin
+						}
+						pageInfo {
+							hasNextPage
+							hasPreviousPage
+						}
+					}
+				}
+			`;
+			variables.profileId = molecularProfileId;
+		} else if (molecularProfileName) {
+			query = `
+				query GetEvidenceByProfileName($profileName: String!, $first: Int!) {
+					molecularProfiles(name: $profileName) {
+						nodes {
+							id
+							name
+							evidenceItems(first: $first) {
+								totalCount
+								nodes {
+									id
+									name
+									description
+									evidenceLevel
+									evidenceType
+									significance
+									evidenceDirection
+									status
+									source {
+										id
+										sourceType
+										citation
+										publicationDate
+									}
+									disease {
+										id
+										name
+										displayName
+										doid
+									}
+									therapies {
+										id
+										name
+										ncitId
+									}
+									molecularProfile {
+										id
+										name
+									}
+									variantOrigin
+								}
+								pageInfo {
+									hasNextPage
+									hasPreviousPage
+								}
+							}
+						}
+					}
+				}
+			`;
+			variables.profileName = molecularProfileName;
+		} else {
+			throw new Error("Either molecularProfileId or molecularProfileName must be provided");
+		}
+		
+		return await this.executeGraphQLQuery(query, variables);
+	}
 
 	// ========================================
 	// ERROR HANDLING - Reusable
