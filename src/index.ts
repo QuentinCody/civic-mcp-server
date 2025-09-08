@@ -117,6 +117,10 @@ export class CivicMCP extends McpAgent {
 	private graphqlTool!: GraphQLTool;
 	private sqlTool!: SQLTool;
 
+	constructor(ctx: DurableObjectState, env: any) {
+		super(ctx, env);
+	}
+
 	async init() {
 		// Initialize GraphQL client and tools
 		const graphqlConfig: GraphQLClientConfig = {
@@ -201,6 +205,8 @@ interface Env {
 	MCP_HOST?: string;
 	MCP_PORT?: string;
 	JSON_TO_SQL_DO: DurableObjectNamespace;
+	MCP_OBJECT: DurableObjectNamespace;
+	[key: string]: any;
 }
 
 interface ExecutionContext {
@@ -215,13 +221,13 @@ export default {
 
 		// Handle standard MCP requests
 		if (url.pathname.startsWith("/mcp")) {
-			// @ts-ignore
-			return CivicMCP.serve("/mcp").fetch(request, env, ctx);
+			// @ts-ignore - Type mismatch in agents library
+			return CivicMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
 		}
 
 		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-			// @ts-ignore - SSE transport handling
-			return CivicMCP.serveSSE("/sse").fetch(request, env, ctx);
+			// @ts-ignore - Type mismatch in agents library
+			return CivicMCP.serveSSE("/sse", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
 		}
 
 		return new Response(
