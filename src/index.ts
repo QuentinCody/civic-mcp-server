@@ -6,8 +6,7 @@ import { GraphQLClient, GraphQLClientConfig } from "./utils/graphql-client.js";
 import { ErrorHandler } from "./utils/error-handling.js";
 import { GraphQLTool, GraphQLToolConfig } from "./tools/graphql-tool.js";
 import { SQLTool, SQLToolConfig } from "./tools/sql-tool.js";
-import { VariantAssertionsTool, VariantAssertionsToolConfig } from "./tools/variant-assertions-tool.js";
-import { VariantEvidenceTool, VariantEvidenceToolConfig } from "./tools/variant-evidence-tool.js";
+import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
 
 // ========================================
 // API CONFIGURATION - Customize for your GraphQL API
@@ -70,48 +69,6 @@ const API_CONFIG = {
 				side_effects: [],
 				resource_usage: "low"
 			}
-		},
-		variant_assertions: {
-			name: 'get_variant_assertions',
-			description: `Retrieve CIViC assertions for a molecular profile by ID or name. Returns assertion data directly without SQLite staging.
-			
-🏷️ TOOL ANNOTATIONS:
-• Type: Non-destructive, Idempotent, Open-world
-• Interactions: Direct CIViC GraphQL API calls
-• Side Effects: None (direct response, bypasses staging)
-• Caching: None (fresh data on each query)
-• Rate Limits: Subject to CIViC API rate limits
-• MCP 2025-06-18 Compliant: ✅`,
-			
-			annotations: {
-				destructive: false,
-				idempotent: true,
-				cacheable: false,
-				world_interaction: "open",
-				side_effects: ["external_api_calls"],
-				resource_usage: "network_io_light"
-			}
-		},
-		variant_evidence: {
-			name: 'get_variant_evidence',
-			description: `Retrieve up to 10 evidence items for a CIViC molecular profile by ID or name. Returns evidence data directly without SQLite staging.
-			
-🏷️ TOOL ANNOTATIONS:
-• Type: Non-destructive, Idempotent, Open-world
-• Interactions: Direct CIViC GraphQL API calls
-• Side Effects: None (direct response, bypasses staging)
-• Caching: None (fresh data on each query)
-• Rate Limits: Subject to CIViC API rate limits
-• MCP 2025-06-18 Compliant: ✅`,
-			
-			annotations: {
-				destructive: false,
-				idempotent: true,
-				cacheable: false,
-				world_interaction: "open",
-				side_effects: ["external_api_calls"],
-				resource_usage: "network_io_light"
-			}
 		}
 	}
 };
@@ -154,8 +111,6 @@ export class CivicMCP extends McpAgent {
 	private errorHandler!: ErrorHandler;
 	private graphqlTool!: GraphQLTool;
 	private sqlTool!: SQLTool;
-	private variantAssertionsTool!: VariantAssertionsTool;
-	private variantEvidenceTool!: VariantEvidenceTool;
 
 	async init() {
 		// Initialize GraphQL client and tools
@@ -186,24 +141,6 @@ export class CivicMCP extends McpAgent {
 				annotations: API_CONFIG.tools.sql.annotations
 			} as SQLToolConfig
 		);
-		
-		this.variantAssertionsTool = new VariantAssertionsTool(
-			this.graphqlClient,
-			{
-				name: API_CONFIG.tools.variant_assertions.name,
-				description: API_CONFIG.tools.variant_assertions.description,
-				annotations: API_CONFIG.tools.variant_assertions.annotations
-			} as VariantAssertionsToolConfig
-		);
-		
-		this.variantEvidenceTool = new VariantEvidenceTool(
-			this.graphqlClient,
-			{
-				name: API_CONFIG.tools.variant_evidence.name,
-				description: API_CONFIG.tools.variant_evidence.description,
-				annotations: API_CONFIG.tools.variant_evidence.annotations
-			} as VariantEvidenceToolConfig
-		);
 
 		// Tool #1: GraphQL to SQLite staging
 		this.server.tool(
@@ -232,32 +169,8 @@ export class CivicMCP extends McpAgent {
 			}
 		);
 
-		// Tool #3: Get variant assertions (bypasses staging)
-		this.server.tool(
-			API_CONFIG.tools.variant_assertions.name,
-			API_CONFIG.tools.variant_assertions.description,
-			{
-				molecular_profile_id: z.number().optional().describe("CIViC molecular profile ID (numeric)"),
-				molecular_profile_name: z.string().optional().describe("CIViC molecular profile name (string)")
-			},
-			async ({ molecular_profile_id, molecular_profile_name }) => {
-				return await this.variantAssertionsTool.execute({ molecular_profile_id, molecular_profile_name });
-			}
-		);
-
-		// Tool #4: Get variant evidence (bypasses staging)
-		this.server.tool(
-			API_CONFIG.tools.variant_evidence.name,
-			API_CONFIG.tools.variant_evidence.description,
-			{
-				molecular_profile_id: z.number().optional().describe("CIViC molecular profile ID (numeric)"),
-				molecular_profile_name: z.string().optional().describe("CIViC molecular profile name (string)"),
-				limit: z.number().max(50).default(10).describe("Maximum number of evidence items to return (max 50, default 10)")
-			},
-			async ({ molecular_profile_id, molecular_profile_name, limit = 10 }) => {
-				return await this.variantEvidenceTool.execute({ molecular_profile_id, molecular_profile_name, limit });
-			}
-		);
+		// Register MCP Prompts that guide LLM to use civic_graphql_query
+		registerCivicPrompts(this.server);
 	}
 
 	// Keep the dataset deletion utility method
