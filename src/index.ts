@@ -104,7 +104,12 @@ export class CivicMCP extends McpAgent {
 	server = new McpServer({
 		name: API_CONFIG.name,
 		version: API_CONFIG.version,
-		description: API_CONFIG.description
+		description: API_CONFIG.description,
+		capabilities: {
+			prompts: {
+				listChanged: true
+			}
+		}
 	});
 
 	private graphqlClient!: GraphQLClient;

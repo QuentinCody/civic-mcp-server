@@ -164,18 +164,22 @@ Once configured, restart Claude Desktop. The server provides two main tools:
 This server exposes three MCP Prompts that guide the model to use the `civic_graphql_query` tool with correct GraphQL syntax and robust search strategies:
 
 ### Individual Data Type Prompts
+
 - **`get-variant-evidence`** — Generates GraphQL for Evidence Items only (no variantName filter - not supported by CIViC schema)
 - **`get-variant-assertions`** — Generates GraphQL for Assertions only with systematic fallback strategies
 
-### Combined Data Prompt  
+### Combined Data Prompt
+
 - **`get-variant-data`** — Executes both Evidence Items AND Assertions queries for comprehensive variant analysis
 
 **Examples (VS Code Copilot Chat / slash-commands):**
+
 - `/get-variant-evidence molecularProfileName:"TP53 Mutation" diseaseName:"Lung Adenocarcinoma" evidenceType:"PROGNOSTIC" first:"200"`
 - `/get-variant-assertions molecularProfileName:"TPM3-NTRK1 Fusion" therapyName:"Larotrectinib" status:"ALL"`
 - `/get-variant-data molecularProfileName:"BRAF V600E" diseaseName:"Melanoma" therapyName:"Trametinib" status:"ALL"`
 
 ### Key Prompt Features
+
 - **Bulletproof GraphQL Generation**: Complete, validated queries that never fail
 - **Intelligent Search Strategies**: Automatic fallback approaches to find relevant data
 - **Comprehensive Results**: Evidence items include clinical descriptions; assertions provide high-level summaries
