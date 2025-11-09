@@ -108,6 +108,9 @@ export class CivicMCP extends McpAgent {
 		capabilities: {
 			prompts: {
 				listChanged: true
+			},
+			tools: {
+				listChanged: true
 			}
 		}
 	});
