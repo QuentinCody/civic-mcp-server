@@ -330,8 +330,20 @@ function getDocumentationHTML(baseUrl: string): string {
     </div>
 
     <h2>Quick Start</h2>
+
     <div class="card">
-        <p>Add this to your Claude Desktop configuration (<code>claude_desktop_config.json</code>):</p>
+        <h3 style="margin-bottom: 0.75rem; font-size: 1rem;">Option 1: Claude Desktop Custom Connectors <span class="badge">Recommended</span></h3>
+        <p>For Claude Pro, Max, Team, or Enterprise users:</p>
+        <ol style="margin: 0.5rem 0 0 1.5rem;">
+            <li>Open Claude Desktop → Settings → Connectors</li>
+            <li>Click "Add custom connector"</li>
+            <li>Enter the URL: <code>${baseUrl}/mcp</code></li>
+        </ol>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-bottom: 0.75rem; font-size: 1rem;">Option 2: Claude Desktop JSON Config</h3>
+        <p>For all users, add this to <code>claude_desktop_config.json</code>:</p>
         <pre><code>{
   "mcpServers": {
     "civic": {
@@ -343,7 +355,19 @@ function getDocumentationHTML(baseUrl: string): string {
     }
   }
 }</code></pre>
-        <p style="margin-top: 1rem;">Then restart Claude Desktop. You can now ask questions like:</p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #64748b;">
+            Config location: <code>~/Library/Application Support/Claude/</code> (macOS) or <code>%APPDATA%\\Claude\\</code> (Windows)
+        </p>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-bottom: 0.75rem; font-size: 1rem;">Option 3: Claude Code CLI</h3>
+        <p>Add the server directly from your terminal:</p>
+        <pre><code>claude mcp add civic ${baseUrl}/mcp --transport http</code></pre>
+    </div>
+
+    <div class="card" style="background: #f0f9ff; border-color: var(--civic-blue);">
+        <p><strong>After connecting, you can ask questions like:</strong></p>
         <ul style="margin: 0.5rem 0 0 1.5rem;">
             <li>"What is the clinical significance of BRAF V600E in melanoma?"</li>
             <li>"What therapies are effective for EGFR L858R in lung cancer?"</li>
