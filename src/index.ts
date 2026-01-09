@@ -371,7 +371,7 @@ function getDocumentationHTML(baseUrl: string): string {
     <h2>Resources</h2>
     <div class="links">
         <a href="https://civicdb.org">CIViC Database</a>
-        <a href="https://github.com/griffithlab/civic-mcp-server">GitHub Repository</a>
+        <a href="https://github.com/QuentinCody/civic-mcp-server">GitHub Repository</a>
         <a href="https://griffithlab.github.io/civic-v2/docs/api/">CIViC API Docs</a>
         <a href="https://modelcontextprotocol.io">MCP Specification</a>
     </div>
@@ -379,7 +379,7 @@ function getDocumentationHTML(baseUrl: string): string {
     <footer>
         <p>CIViC MCP Server v${API_CONFIG.version}</p>
         <p style="margin-top: 0.5rem;">
-            Developed by the <a href="https://griffithlab.org">Griffith Lab</a> at Washington University School of Medicine
+            Created by <a href="https://github.com/QuentinCody">Quentin Cody</a>
         </p>
     </footer>
 </body>
