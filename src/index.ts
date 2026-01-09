@@ -338,7 +338,7 @@ function getDocumentationHTML(baseUrl: string): string {
       "command": "npx",
       "args": [
         "mcp-remote",
-        "${baseUrl}/sse"
+        "${baseUrl}/mcp"
       ]
     }
   }
