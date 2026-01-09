@@ -217,13 +217,192 @@ interface ExecutionContext {
 	passThroughOnException(): void;
 }
 
+// ========================================
+// DOCUMENTATION PAGE FOR GET REQUESTS
+// ========================================
+function getDocumentationHTML(baseUrl: string): string {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CIViC MCP Server</title>
+    <style>
+        :root {
+            --civic-blue: #1a73e8;
+            --civic-dark: #1e293b;
+            --civic-light: #f8fafc;
+            --civic-border: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: var(--civic-dark);
+            background: var(--civic-light);
+            padding: 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 2px solid var(--civic-border);
+        }
+        h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+        .subtitle { color: #64748b; font-size: 1.1rem; }
+        h2 {
+            font-size: 1.25rem;
+            margin: 2rem 0 1rem;
+            color: var(--civic-blue);
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--civic-border);
+        }
+        code {
+            background: #f1f5f9;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        pre {
+            background: var(--civic-dark);
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+        pre code { background: none; padding: 0; color: inherit; }
+        .tool {
+            border-left: 3px solid var(--civic-blue);
+            padding-left: 1rem;
+            margin: 1rem 0;
+        }
+        .tool-name { font-weight: 600; color: var(--civic-blue); }
+        .badge {
+            display: inline-block;
+            background: var(--civic-blue);
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 0.5rem;
+        }
+        a { color: var(--civic-blue); }
+        .links { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; }
+        .links a {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--civic-border);
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .links a:hover { background: #f1f5f9; }
+        footer {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--civic-border);
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>CIViC MCP Server</h1>
+        <p class="subtitle">Query the Clinical Interpretation of Variants in Cancer database using natural language</p>
+    </header>
+
+    <div class="card">
+        <strong>This is a Model Context Protocol (MCP) server.</strong>
+        Connect it to an MCP-compatible client (Claude Desktop, Cursor, etc.) to query CIViC through natural language.
+    </div>
+
+    <h2>Quick Start</h2>
+    <div class="card">
+        <p>Add this to your Claude Desktop configuration (<code>claude_desktop_config.json</code>):</p>
+        <pre><code>{
+  "mcpServers": {
+    "civic": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "${baseUrl}/sse"
+      ]
+    }
+  }
+}</code></pre>
+        <p style="margin-top: 1rem;">Then restart Claude Desktop. You can now ask questions like:</p>
+        <ul style="margin: 0.5rem 0 0 1.5rem;">
+            <li>"What is the clinical significance of BRAF V600E in melanoma?"</li>
+            <li>"What therapies are effective for EGFR L858R in lung cancer?"</li>
+            <li>"Show me evidence for ALK fusions in non-small cell lung cancer"</li>
+        </ul>
+    </div>
+
+    <h2>Available Tools</h2>
+
+    <div class="tool">
+        <p><span class="tool-name">get_variant_evidence</span> <span class="badge">Recommended</span></p>
+        <p>Retrieve evidence items for a molecular profile, optionally filtered by disease and therapy.</p>
+    </div>
+
+    <div class="tool">
+        <p><span class="tool-name">get_variant_assertions</span></p>
+        <p>Retrieve clinical assertions for a molecular profile with optional disease filtering.</p>
+    </div>
+
+    <div class="tool">
+        <p><span class="tool-name">civic_graphql_query</span> <span class="badge">Advanced</span></p>
+        <p>Execute custom GraphQL queries against the CIViC API with automatic SQLite staging for large results.</p>
+    </div>
+
+    <h2>Resources</h2>
+    <div class="links">
+        <a href="https://civicdb.org">CIViC Database</a>
+        <a href="https://github.com/griffithlab/civic-mcp-server">GitHub Repository</a>
+        <a href="https://griffithlab.github.io/civic-v2/docs/api/">CIViC API Docs</a>
+        <a href="https://modelcontextprotocol.io">MCP Specification</a>
+    </div>
+
+    <footer>
+        <p>CIViC MCP Server v${API_CONFIG.version}</p>
+        <p style="margin-top: 0.5rem;">
+            Developed by the <a href="https://griffithlab.org">Griffith Lab</a> at Washington University School of Medicine
+        </p>
+    </footer>
+</body>
+</html>`;
+}
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+		const baseUrl = `${url.protocol}//${url.host}`;
 		setGlobalEnvironment(env);
 
 		// Handle standard MCP requests
 		if (url.pathname.startsWith("/mcp")) {
+			// For GET requests, return human-readable documentation
+			if (request.method === "GET") {
+				return new Response(getDocumentationHTML(baseUrl), {
+					status: 200,
+					headers: { "Content-Type": "text/html; charset=utf-8" }
+				});
+			}
+
+			// POST requests go to MCP server as normal
 			// @ts-ignore - Type mismatch in agents library
 			return CivicMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
 		}
@@ -231,6 +410,11 @@ export default {
 		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
 			// @ts-ignore - Type mismatch in agents library
 			return CivicMCP.serveSSE("/sse", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
+		}
+
+		// Root path redirects to /mcp documentation
+		if (url.pathname === "/") {
+			return Response.redirect(`${baseUrl}/mcp`, 302);
 		}
 
 		return new Response(
