@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 8790",
     "format": "biome format --write",
     "lint:fix": "biome lint --fix",
     "start": "wrangler dev",
@@ -23,5 +23,8 @@
     "@modelcontextprotocol/sdk": "^1.7.0",
     "agents": "^0.2.13",
     "zod": "^3.24.2"
-  }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }
