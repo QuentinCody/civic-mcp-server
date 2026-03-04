@@ -52,7 +52,7 @@ export class SQLTool {
             return { 
                 content: [{ 
                     type: "text" as const, 
-                    text: JSON.stringify(queryResult, null, 2) 
+                    text: JSON.stringify(queryResult)
                 }],
                 _meta: {
                     data_access_id: params.data_access_id,

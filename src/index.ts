@@ -30,15 +30,17 @@ const API_CONFIG = {
 	tools: {
 		graphql: {
 			name: 'civic_graphql_query',
-			description: `Execute GraphQL queries against the CIViC API, automatically staging large datasets in SQLite for subsequent analysis.
-			
-🏷️ TOOL ANNOTATIONS:
-• Type: Non-destructive, Non-idempotent, Open-world
-• Interactions: External API calls to CIViC GraphQL endpoint
-• Side Effects: May create temporary SQLite tables for large datasets
-• Caching: None (fresh data on each query)
-• Rate Limits: Subject to CIViC API rate limits
-• MCP 2025-06-18 Compliant: ✅`,
+			description: `Execute GraphQL queries against the CIViC (Clinical Interpretation of Variants in Cancer) GraphQL API. Large responses are staged in SQLite for SQL querying.
+
+KEY QUERY PATTERNS — CIViC uses non-standard argument names:
+• Gene by symbol: { gene(entrezSymbol: "EGFR") { id name description } }
+• Genes by list: { genes(entrezSymbols: ["EGFR","BRAF"]) { nodes { id name } } }
+• Variants by gene ID: { variants(geneId: 19) { nodes { id name } } }
+  (requires gene ID from gene query — does NOT accept gene symbol)
+• Evidence items: { evidenceItems(first: 10) { nodes { id status } } }
+  (status is a scalar enum/string, not an object)
+
+Use introspection { __type(name: "Query") { fields { name args { name type { name } } } } } to discover additional fields. Results will be staged to SQLite.`,
 			
 			annotations: {
 				destructive: false,

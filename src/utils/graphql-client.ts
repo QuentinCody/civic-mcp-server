@@ -2,6 +2,7 @@ export interface GraphQLResponse {
     data?: any;
     errors?: any[];
     _auto_corrected?: boolean;
+    _original_query?: string;
 }
 
 export interface GraphQLClientConfig {

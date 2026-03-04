@@ -18,6 +18,19 @@ export interface ErrorResponse {
 export class ErrorHandler {
     private graphqlClient: GraphQLClient;
 
+    // Known field name corrections for common CIViC schema drift patterns
+    private static readonly KNOWN_CORRECTIONS: Record<string, Record<string, string>> = {
+        EvidenceItem: {
+            direction: "evidenceDirection",
+            level: "evidenceLevel",
+            type: "evidenceType",
+        },
+        Assertion: {
+            direction: "assertionDirection",
+            type: "assertionType",
+        },
+    };
+
     constructor(graphqlClient: GraphQLClient) {
         this.graphqlClient = graphqlClient;
     }
@@ -42,12 +55,12 @@ export class ErrorHandler {
         };
     }
 
-    async enhanceGraphQLErrorResponse(graphqlResult: any): Promise<string> {
+    async enhanceGraphQLErrorResponse(graphqlResult: any, originalQuery?: string): Promise<string> {
         if (!graphqlResult.errors || !Array.isArray(graphqlResult.errors)) {
-            return JSON.stringify(graphqlResult, null, 2);
+            return JSON.stringify(graphqlResult);
         }
 
-        let enhancedResponse = JSON.stringify(graphqlResult, null, 2);
+        let enhancedResponse = JSON.stringify(graphqlResult);
         
         // Add auto-correction info if available
         if (graphqlResult._auto_corrected) {
@@ -56,12 +69,24 @@ export class ErrorHandler {
             enhancedResponse += `Use the corrected query format for future requests.`;
             return enhancedResponse;
         }
+
+        if (this.hasEvidenceStatusScalarError(graphqlResult)) {
+            enhancedResponse += `\n\n⚠️ CIViC Query Shape Tip:\n`;
+            enhancedResponse += `EvidenceStatus is a scalar value. Use 'status' directly, not 'status { name }'.`;
+            if (originalQuery && /\bstatus\s*\{[^{}]*\}/m.test(originalQuery)) {
+                const corrected = this.replaceStatusSelectionSet(originalQuery);
+                enhancedResponse += `\n\nSuggested corrected query:\n${corrected}`;
+            }
+        }
         
         // Look for field errors and add suggestions
         for (const error of graphqlResult.errors) {
             if (error.extensions?.code === 'undefinedField' && 
                 error.extensions?.typeName && 
                 error.extensions?.fieldName) {
+                if (error.extensions.typeName === "EvidenceStatus" && error.extensions.fieldName === "name") {
+                    continue;
+                }
                 
                 const [suggestions, typeStructure] = await Promise.all([
                     this.graphqlClient.getFieldSuggestions(error.extensions.typeName, error.extensions.fieldName),
@@ -78,6 +103,18 @@ export class ErrorHandler {
         }
         
         return enhancedResponse;
+    }
+
+    private hasEvidenceStatusScalarError(graphqlResult: any): boolean {
+        return graphqlResult?.errors?.some((error: any) =>
+            error?.extensions?.code === "undefinedField" &&
+            error?.extensions?.typeName === "EvidenceStatus" &&
+            error?.extensions?.fieldName === "name"
+        ) || false;
+    }
+
+    private replaceStatusSelectionSet(query: string): string {
+        return query.replace(/\bstatus\s*\{[^{}]*\}/gm, "status");
     }
 
     hasFieldErrors(result: any): boolean {
@@ -116,6 +153,10 @@ export class ErrorHandler {
     }
 
     private async generateFieldCorrections(invalidField: string, typeName: string): Promise<string[]> {
+        // Check known corrections first — these are verified field mappings
+        const known = ErrorHandler.KNOWN_CORRECTIONS[typeName]?.[invalidField];
+        if (known) return [known];
+
         const transformations = [
             // Case transformations
             this.toCamelCase(invalidField),

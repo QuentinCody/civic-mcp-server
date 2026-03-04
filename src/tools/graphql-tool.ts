@@ -53,10 +53,45 @@ export class GraphQLTool {
 
     async execute(params: { query: string; variables?: Record<string, any> }, env: any) {
         try {
-            const graphqlResult = await this.graphqlClient.executeQuery(params.query, params.variables);
+            let graphqlResult = await this.graphqlClient.executeQuery(params.query, params.variables);
+            // Track the latest query version so chained corrections build on each other
+            let currentQuery = params.query;
+
+            // CIViC-specific ergonomic fix: status is a scalar (not an object).
+            if (this.shouldAutoCorrectEvidenceStatusSelection(currentQuery, graphqlResult)) {
+                const correctedQuery = this.fixEvidenceStatusSelection(currentQuery);
+                if (correctedQuery !== currentQuery) {
+                    const correctedResult = await this.graphqlClient.executeQuery(correctedQuery, params.variables);
+                    if (!correctedResult.errors || correctedResult.data) {
+                        currentQuery = correctedQuery;
+                        graphqlResult = {
+                            ...correctedResult,
+                            _auto_corrected: true
+                        };
+                    } else {
+                        graphqlResult = correctedResult;
+                    }
+                }
+            }
+
+            // Auto-correct known field errors (e.g., direction → evidenceDirection)
+            if (this.errorHandler.hasFieldErrors(graphqlResult)) {
+                const corrected = await this.errorHandler.attemptAutoCorrection(currentQuery, graphqlResult);
+                if (corrected) {
+                    const retryResult = await this.graphqlClient.executeQuery(corrected, params.variables);
+                    if (!retryResult.errors || retryResult.data) {
+                        graphqlResult = {
+                            ...retryResult,
+                            _auto_corrected: true,
+                            _original_query: params.query,
+                        };
+                    }
+                }
+            }
 
             if (graphqlResult.errors && !graphqlResult.data) {
-                return { content: [{ type: "text" as const, text: JSON.stringify(graphqlResult, null, 2) }] };
+                const enhancedError = await this.errorHandler.enhanceGraphQLErrorResponse(graphqlResult, params.query);
+                return { content: [{ type: "text" as const, text: enhancedError }] };
             }
 
             // Intelligent Staging Logic
@@ -64,7 +99,7 @@ export class GraphQLTool {
             if (responseString.length > this.config.stagingThresholdBytes) {
                 // Response is large, stage it
                 const stagingResult = await this.stageDataInDurableObject(graphqlResult, env);
-                return { content: [{ type: "text" as const, text: JSON.stringify(stagingResult, null, 2) }] };
+                return { content: [{ type: "text" as const, text: JSON.stringify(stagingResult) }] };
             } else {
                 // Response is small, return it directly
                 return { content: [{ type: "text" as const, text: responseString }] };
@@ -72,6 +107,27 @@ export class GraphQLTool {
         } catch (error) {
             return this.errorHandler.createErrorResponse("GraphQL execution failed", error);
         }
+    }
+
+    private shouldAutoCorrectEvidenceStatusSelection(query: string, graphqlResult: any): boolean {
+        if (!query || !graphqlResult?.errors || !Array.isArray(graphqlResult.errors)) {
+            return false;
+        }
+
+        const hasStatusSelectionSet = /\bstatus\s*\{[^{}]*\}/m.test(query);
+        if (!hasStatusSelectionSet) {
+            return false;
+        }
+
+        return graphqlResult.errors.some((error: any) =>
+            error?.extensions?.code === "undefinedField" &&
+            error?.extensions?.typeName === "EvidenceStatus" &&
+            error?.extensions?.fieldName === "name"
+        );
+    }
+
+    private fixEvidenceStatusSelection(query: string): string {
+        return query.replace(/\bstatus\s*\{[^{}]*\}/gm, "status");
     }
 
     private async stageDataInDurableObject(graphqlResult: any, env: CivicEnv): Promise<any> {

@@ -51,7 +51,7 @@ export class VariantAssertionsTool {
             return { 
                 content: [{ 
                     type: "text" as const, 
-                    text: JSON.stringify(result, null, 2) 
+                    text: JSON.stringify(result) 
                 }],
                 _meta: {
                     tool_type: "variant_assertions",
