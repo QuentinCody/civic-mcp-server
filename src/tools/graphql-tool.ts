@@ -45,7 +45,7 @@ export class GraphQLTool {
             description: this.config.description,
             inputSchema: {
                 query: z.string().describe("GraphQL query string"),
-                variables: z.record(z.any()).optional().describe("Optional variables for the GraphQL query"),
+                variables: z.record(z.string(), z.any()).optional().describe("Optional variables for the GraphQL query"),
             },
             annotations: this.config.annotations
         };
