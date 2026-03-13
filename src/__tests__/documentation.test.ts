@@ -4,14 +4,10 @@
  * IMPORTANT: These tests ensure that documentation always points users to the
  * correct MCP endpoint using Streamable HTTP transport.
  *
- * Background: The MCP specification supports multiple transports:
- * - Streamable HTTP (POST /mcp) - The modern, recommended approach
- * - Server-Sent Events (GET /sse) - Legacy transport, being phased out
+ * Background: All servers use Streamable HTTP (POST /mcp) exclusively.
+ * The legacy SSE transport has been removed.
  *
- * All documentation and configuration examples MUST use the /mcp endpoint
- * with Streamable HTTP, NOT the /sse endpoint with SSE transport.
- *
- * If these tests fail, DO NOT change them to use /sse - fix the source code instead.
+ * All documentation and configuration examples MUST use the /mcp endpoint.
  */
 
 import { describe, it, expect } from "vitest";
@@ -93,10 +89,8 @@ describe("Source Code Routing", () => {
         expect(indexContent).toContain('CivicMCP.serve("/mcp"');
     });
 
-    it("should still support /sse endpoint for backwards compatibility", () => {
-        // The /sse endpoint can remain for backwards compatibility,
-        // but documentation should NOT point users to it
-        expect(indexContent).toContain('url.pathname === "/sse"');
-        expect(indexContent).toContain('CivicMCP.serveSSE("/sse"');
+    it("should NOT have /sse endpoint (removed in favor of Streamable HTTP only)", () => {
+        expect(indexContent).not.toContain('serveSSE');
+        expect(indexContent).not.toMatch(/url\.pathname\s*===?\s*["']\/sse["']/);
     });
 });

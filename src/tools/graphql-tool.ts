@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { GraphQLClient } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 

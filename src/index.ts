@@ -1,6 +1,6 @@
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { JsonToSqlDO } from "./do.js";
 import { GraphQLClient, GraphQLClientConfig } from "./utils/graphql-client.js";
 import { ErrorHandler } from "./utils/error-handling.js";
@@ -429,13 +429,7 @@ export default {
 			}
 
 			// POST requests go to MCP server as normal
-			// @ts-ignore - Type mismatch in agents library
 			return CivicMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
-		}
-
-		if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-			// @ts-ignore - Type mismatch in agents library
-			return CivicMCP.serveSSE("/sse", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
 		}
 
 		// Root path redirects to /mcp documentation
@@ -444,7 +438,7 @@ export default {
 		}
 
 		return new Response(
-			`${API_CONFIG.name} - Available on /sse and /mcp endpoints`,
+			`${API_CONFIG.name} - Available on /mcp endpoint`,
 			{ status: 404, headers: { "Content-Type": "text/plain" } }
 		);
 	},
