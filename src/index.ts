@@ -3,17 +3,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import { JsonToSqlDO } from "./do.js";
 import { GraphQLClient, GraphQLClientConfig } from "./utils/graphql-client.js";
-import { ErrorHandler } from "./utils/error-handling.js";
 import { GraphQLTool, GraphQLToolConfig } from "./tools/graphql-tool.js";
 import { SQLTool, SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
+// CIViC: Clinical Interpretation of Variants in Cancer
+// Uses GraphQL API at graphql.civicdb.org
+// Powered by the CIViC knowledgebase (civicdb.org)
+// Migrated to shared RestStagingDO infrastructure (March 2026)
 
 // ========================================
 // API CONFIGURATION - Customize for your GraphQL API
 // ========================================
 const API_CONFIG = {
 	name: "CivicExplorer",
-	version: "0.1.0",
+	version: "0.2.0",
 	description: "MCP Server for querying GraphQL APIs and converting responses to queryable SQLite tables",
 
 	// Staging configuration
@@ -23,7 +26,7 @@ const API_CONFIG = {
 	endpoint: 'https://civicdb.org/api/graphql',
 	headers: {
 		"Accept": 'application/vnd.civicdb.v2+json', // API-specific version header
-		"User-Agent": "MCPCivicServer/0.1.0"
+		"User-Agent": "MCPCivicServer/0.2.0"
 	},
 	
 	// Tool definitions with enhanced descriptions including annotations
@@ -51,6 +54,7 @@ Use introspection { __type(name: "Query") { fields { name args { name type { nam
 				resource_usage: "network_io_heavy"
 			}
 		},
+		// SQL tool for querying staged GraphQL responses
 		sql: {
 			name: 'civic_query_sql',
 			description: `Execute read-only SQL queries against staged CIViC data in SQLite. Use the data_access_id from a GraphQL query to access the corresponding dataset.
@@ -79,52 +83,18 @@ Use introspection { __type(name: "Query") { fields { name args { name type { nam
 const datasetRegistry = new Map<string, { created: string; table_count?: number; total_rows?: number }>();
 
 // ========================================
-// ENVIRONMENT INTERFACE
+// CORE MCP SERVER CLASS
 // ========================================
-interface CivicEnv {
-	MCP_HOST?: string;
-	MCP_PORT?: string;
-	JSON_TO_SQL_DO: DurableObjectNamespace;
-}
-
-// ========================================
-// CORE MCP SERVER CLASS - Reusable template
-// ========================================
-
-// Environment storage for tool access
-let currentEnvironment: Env | null = null;
-
-function setGlobalEnvironment(env: Env) {
-	currentEnvironment = env;
-}
-
-function getGlobalEnvironment(): Env | null {
-	return currentEnvironment;
-}
 
 export class CivicMCP extends McpAgent {
 	server = new McpServer({
 		name: API_CONFIG.name,
 		version: API_CONFIG.version,
-		description: API_CONFIG.description,
-		capabilities: {
-			prompts: {
-				listChanged: true
-			},
-			tools: {
-				listChanged: true
-			}
-		}
 	});
 
 	private graphqlClient!: GraphQLClient;
-	private errorHandler!: ErrorHandler;
 	private graphqlTool!: GraphQLTool;
 	private sqlTool!: SQLTool;
-
-	constructor(ctx: DurableObjectState, env: any) {
-		super(ctx, env);
-	}
 
 	async init() {
 		// Initialize GraphQL client and tools
@@ -133,8 +103,7 @@ export class CivicMCP extends McpAgent {
 			headers: API_CONFIG.headers
 		};
 		this.graphqlClient = new GraphQLClient(graphqlConfig);
-		this.errorHandler = new ErrorHandler(this.graphqlClient);
-		
+
 		// Initialize tools
 		this.graphqlTool = new GraphQLTool(
 			this.graphqlClient,
@@ -165,7 +134,7 @@ export class CivicMCP extends McpAgent {
 				variables: z.record(z.string(), z.any()).optional().describe("Optional variables for the GraphQL query"),
 			},
 			async ({ query, variables }) => {
-				return await this.graphqlTool.execute({ query, variables }, this.env);
+				return await this.graphqlTool.execute({ query, variables }, this.env as unknown as Cloudflare.Env);
 			}
 		);
 
@@ -179,44 +148,13 @@ export class CivicMCP extends McpAgent {
 				params: z.array(z.string()).optional().describe("Optional query parameters"),
 			},
 			async ({ data_access_id, sql, params }) => {
-				return await this.sqlTool.execute({ data_access_id, sql, params }, this.env);
+				return await this.sqlTool.execute({ data_access_id, sql, params }, this.env as unknown as Cloudflare.Env);
 			}
 		);
 
 		// Register MCP Prompts that guide LLM to use civic_graphql_query
 		registerCivicPrompts(this.server);
 	}
-
-	// Keep the dataset deletion utility method
-	private async deleteDataset(dataAccessId: string): Promise<boolean> {
-		const env = this.env as CivicEnv;
-		if (!env?.JSON_TO_SQL_DO) {
-			throw new Error("JSON_TO_SQL_DO binding not available");
-		}
-
-		const doId = env.JSON_TO_SQL_DO.idFromName(dataAccessId);
-		const stub = env.JSON_TO_SQL_DO.get(doId);
-
-		const response = await stub.fetch("http://do/delete", { method: 'DELETE' });
-
-		return response.ok;
-	}
-}
-
-// ========================================
-// CLOUDFLARE WORKERS BOILERPLATE - Simplified
-// ========================================
-interface Env {
-	MCP_HOST?: string;
-	MCP_PORT?: string;
-	JSON_TO_SQL_DO: DurableObjectNamespace;
-	MCP_OBJECT: DurableObjectNamespace;
-	[key: string]: any;
-}
-
-interface ExecutionContext {
-	waitUntil(promise: Promise<any>): void;
-	passThroughOnException(): void;
 }
 
 // ========================================
@@ -416,7 +354,6 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 		const baseUrl = `${url.protocol}//${url.host}`;
-		setGlobalEnvironment(env);
 
 		// Handle standard MCP requests
 		if (url.pathname.startsWith("/mcp")) {
