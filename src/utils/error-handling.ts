@@ -1,4 +1,4 @@
-import { GraphQLClient } from './graphql-client.js';
+import { GraphQLClient, type GraphQLResponse, type GraphQLError } from './graphql-client.js';
 
 export interface ErrorResponse {
     [x: string]: unknown;
@@ -55,13 +55,13 @@ export class ErrorHandler {
         };
     }
 
-    async enhanceGraphQLErrorResponse(graphqlResult: any, originalQuery?: string): Promise<string> {
+    async enhanceGraphQLErrorResponse(graphqlResult: GraphQLResponse, originalQuery?: string): Promise<string> {
         if (!graphqlResult.errors || !Array.isArray(graphqlResult.errors)) {
             return JSON.stringify(graphqlResult);
         }
 
         let enhancedResponse = JSON.stringify(graphqlResult);
-        
+
         // Add auto-correction info if available
         if (graphqlResult._auto_corrected) {
             enhancedResponse += `\n\n✅ Auto-Correction Applied:\n`;
@@ -78,35 +78,37 @@ export class ErrorHandler {
                 enhancedResponse += `\n\nSuggested corrected query:\n${corrected}`;
             }
         }
-        
+
         // Look for field errors and add suggestions
         for (const error of graphqlResult.errors) {
-            if (error.extensions?.code === 'undefinedField' && 
-                error.extensions?.typeName && 
+            if (error.extensions?.code === 'undefinedField' &&
+                error.extensions?.typeName &&
                 error.extensions?.fieldName) {
                 if (error.extensions.typeName === "EvidenceStatus" && error.extensions.fieldName === "name") {
                     continue;
                 }
-                
+
+                const typeName = String(error.extensions.typeName);
+                const fieldName = String(error.extensions.fieldName);
                 const [suggestions, typeStructure] = await Promise.all([
-                    this.graphqlClient.getFieldSuggestions(error.extensions.typeName, error.extensions.fieldName),
-                    this.graphqlClient.getTypeStructure(error.extensions.typeName)
+                    this.graphqlClient.getFieldSuggestions(typeName, fieldName),
+                    this.graphqlClient.getTypeStructure(typeName)
                 ]);
-                
+
                 enhancedResponse += `\n\n📋 Type Structure:\n${typeStructure}`;
-                
+
                 if (suggestions.length > 0) {
-                    enhancedResponse += `\n\n🔍 Suggested fields similar to '${error.extensions.fieldName}':\n`;
+                    enhancedResponse += `\n\n🔍 Suggested fields similar to '${fieldName}':\n`;
                     enhancedResponse += `${suggestions.join(', ')}`;
                 }
             }
         }
-        
+
         return enhancedResponse;
     }
 
-    private hasEvidenceStatusScalarError(graphqlResult: any): boolean {
-        return graphqlResult?.errors?.some((error: any) =>
+    private hasEvidenceStatusScalarError(graphqlResult: GraphQLResponse): boolean {
+        return graphqlResult?.errors?.some((error: GraphQLError) =>
             error?.extensions?.code === "undefinedField" &&
             error?.extensions?.typeName === "EvidenceStatus" &&
             error?.extensions?.fieldName === "name"
@@ -117,13 +119,13 @@ export class ErrorHandler {
         return query.replace(/\bstatus\s*\{[^{}]*\}/gm, "status");
     }
 
-    hasFieldErrors(result: any): boolean {
-        return result?.errors?.some((error: any) => 
+    hasFieldErrors(result: GraphQLResponse): boolean {
+        return result?.errors?.some((error: GraphQLError) =>
             error.extensions?.code === 'undefinedField'
         ) || false;
     }
 
-    async attemptAutoCorrection(originalQuery: string, errorResult: any): Promise<string | null> {
+    async attemptAutoCorrection(originalQuery: string, errorResult: GraphQLResponse): Promise<string | null> {
         if (!errorResult?.errors) return null;
 
         let correctedQuery = originalQuery;
@@ -134,12 +136,12 @@ export class ErrorHandler {
                 error.extensions?.typeName && 
                 error.extensions?.fieldName) {
                 
-                const invalidField = error.extensions.fieldName;
-                const typeName = error.extensions.typeName;
-                
+                const invalidField = String(error.extensions.fieldName);
+                const typeName = String(error.extensions.typeName);
+
                 // Try various field name transformations
                 const corrections = await this.generateFieldCorrections(invalidField, typeName);
-                
+
                 if (corrections.length > 0) {
                     // Use the first (most likely) correction
                     const bestCorrection = corrections[0];
@@ -195,8 +197,9 @@ export class ErrorHandler {
     }
 
     private replaceFieldInQuery(query: string, oldField: string, newField: string): string {
-        // Simple regex replacement - could be more sophisticated
-        const fieldRegex = new RegExp(`\\b${oldField}\\b`, 'g');
+        // Escape special regex chars in the field name to prevent ReDoS
+        const escaped = oldField.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const fieldRegex = new RegExp(`\\b${escaped}\\b`, 'g');
         return query.replace(fieldRegex, newField);
     }
 

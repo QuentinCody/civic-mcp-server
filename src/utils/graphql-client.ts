@@ -1,6 +1,13 @@
+export interface GraphQLError {
+    message: string;
+    locations?: Array<{ line: number; column: number }>;
+    path?: Array<string | number>;
+    extensions?: Record<string, unknown>;
+}
+
 export interface GraphQLResponse {
-    data?: any;
-    errors?: any[];
+    data?: Record<string, unknown>;
+    errors?: GraphQLError[];
     _auto_corrected?: boolean;
     _original_query?: string;
 }
@@ -10,6 +17,25 @@ export interface GraphQLClientConfig {
     headers: Record<string, string>;
 }
 
+/** Shape of an introspection __type result */
+interface IntrospectionFieldType {
+    name?: string;
+    kind?: string;
+    ofType?: { name?: string; kind?: string };
+}
+
+interface IntrospectionField {
+    name: string;
+    type?: IntrospectionFieldType;
+}
+
+interface IntrospectionType {
+    name?: string;
+    kind?: string;
+    description?: string;
+    fields?: IntrospectionField[];
+}
+
 export class GraphQLClient {
     private config: GraphQLClientConfig;
 
@@ -17,7 +43,7 @@ export class GraphQLClient {
         this.config = config;
     }
 
-    async executeQuery(query: string, variables?: Record<string, any>): Promise<GraphQLResponse> {
+    async executeQuery(query: string, variables?: Record<string, unknown>): Promise<GraphQLResponse> {
         const headers = {
             "Content-Type": "application/json",
             ...this.config.headers
@@ -61,7 +87,7 @@ export class GraphQLClient {
         );
     }
 
-    shouldBypassStaging(result: any, originalQuery?: string): boolean {
+    shouldBypassStaging(result: GraphQLResponse | null, originalQuery?: string): boolean {
         if (!result) return true;
 
         // Bypass if this was an introspection query
@@ -80,15 +106,15 @@ export class GraphQLClient {
             if (result.data.__schema || result.data.__type) {
                 return true;
             }
-            
+
             // Check for schema metadata structures
-            const hasSchemaMetadata = Object.values(result.data).some((value: any) => {
+            const hasSchemaMetadata = Object.values(result.data).some((value: unknown) => {
                 if (value && typeof value === 'object') {
                     // Look for typical schema introspection fields
-                    const keys = Object.keys(value);
+                    const keys = Object.keys(value as Record<string, unknown>);
                     const schemaFields = ['types', 'queryType', 'mutationType', 'subscriptionType', 'directives'];
                     const typeFields = ['name', 'kind', 'description', 'fields', 'interfaces', 'possibleTypes', 'enumValues', 'inputFields'];
-                    
+
                     return schemaFields.some(field => keys.includes(field)) ||
                            typeFields.filter(field => keys.includes(field)).length >= 2;
                 }
@@ -124,7 +150,7 @@ export class GraphQLClient {
         return false;
     }
 
-    getBypassReason(result: any, originalQuery?: string): string {
+    getBypassReason(result: GraphQLResponse | null, originalQuery?: string): string {
         if (!result) return "null_or_empty_result";
         
         if (originalQuery && this.isIntrospectionQuery(originalQuery)) {
@@ -179,8 +205,10 @@ export class GraphQLClient {
             
             const result = await this.executeQuery(introspectionQuery, { typeName });
             
-            if (result.data?.__type?.fields) {
-                const fields = result.data.__type.fields.map((field: any) => field.name);
+            if (result.data?.__type) {
+                const typeData = result.data.__type as IntrospectionType;
+                if (!typeData.fields) return [];
+                const fields = typeData.fields.map((field) => field.name);
                 
                 // If we have an invalid field, try to find similar ones
                 if (invalidField) {
@@ -232,27 +260,27 @@ export class GraphQLClient {
             const result = await this.executeQuery(introspectionQuery, { typeName });
             
             if (result.data?.__type) {
-                const type = result.data.__type;
+                const type = result.data.__type as IntrospectionType;
                 let structure = `${type.name} (${type.kind})`;
-                
+
                 if (type.description) {
                     structure += `\n  Description: ${type.description}`;
                 }
-                
+
                 if (type.fields && type.fields.length > 0) {
                     structure += '\n  Fields:';
                     // Show first 15 fields with their types
                     const fieldsToShow = type.fields.slice(0, 15);
                     for (const field of fieldsToShow) {
-                        const fieldType = this.formatFieldType(field.type);
+                        const fieldType = this.formatFieldType(field.type ?? null);
                         structure += `\n    ${field.name}: ${fieldType}`;
                     }
-                    
+
                     if (type.fields.length > 15) {
                         structure += `\n    ... and ${type.fields.length - 15} more fields`;
                     }
                 }
-                
+
                 return structure;
             }
         } catch (error) {
@@ -263,18 +291,18 @@ export class GraphQLClient {
         return `Type '${typeName}' structure unavailable`;
     }
 
-    private formatFieldType(type: any): string {
+    private formatFieldType(type: { name?: string; kind?: string; ofType?: { name?: string; kind?: string; ofType?: { name?: string; kind?: string } } } | null): string {
         if (!type) return 'Unknown';
-        
+
         if (type.kind === 'NON_NULL') {
-            return `${this.formatFieldType(type.ofType)}!`;
+            return `${this.formatFieldType(type.ofType ?? null)}!`;
         }
-        
+
         if (type.kind === 'LIST') {
-            return `[${this.formatFieldType(type.ofType)}]`;
+            return `[${this.formatFieldType(type.ofType ?? null)}]`;
         }
-        
-        return type.name || type.kind;
+
+        return type.name || type.kind || 'Unknown';
     }
 
     private getStaticTypeStructure(typeName: string): string {

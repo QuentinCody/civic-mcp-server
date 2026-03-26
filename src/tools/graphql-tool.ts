@@ -1,5 +1,5 @@
 import { z } from "zod/v3";
-import { GraphQLClient } from "../utils/graphql-client.js";
+import { GraphQLClient, type GraphQLResponse, type GraphQLError } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
 export interface CivicEnv {
@@ -45,13 +45,13 @@ export class GraphQLTool {
             description: this.config.description,
             inputSchema: {
                 query: z.string().describe("GraphQL query string"),
-                variables: z.record(z.string(), z.any()).optional().describe("Optional variables for the GraphQL query"),
+                variables: z.record(z.string(), z.unknown()).optional().describe("Optional variables for the GraphQL query"),
             },
             annotations: this.config.annotations
         };
     }
 
-    async execute(params: { query: string; variables?: Record<string, any> }, env: any) {
+    async execute(params: { query: string; variables?: Record<string, unknown> }, env: CivicEnv) {
         try {
             let graphqlResult = await this.graphqlClient.executeQuery(params.query, params.variables);
             // Track the latest query version so chained corrections build on each other
@@ -109,7 +109,7 @@ export class GraphQLTool {
         }
     }
 
-    private shouldAutoCorrectEvidenceStatusSelection(query: string, graphqlResult: any): boolean {
+    private shouldAutoCorrectEvidenceStatusSelection(query: string, graphqlResult: GraphQLResponse): boolean {
         if (!query || !graphqlResult?.errors || !Array.isArray(graphqlResult.errors)) {
             return false;
         }
@@ -119,7 +119,7 @@ export class GraphQLTool {
             return false;
         }
 
-        return graphqlResult.errors.some((error: any) =>
+        return graphqlResult.errors.some((error: GraphQLError) =>
             error?.extensions?.code === "undefinedField" &&
             error?.extensions?.typeName === "EvidenceStatus" &&
             error?.extensions?.fieldName === "name"
@@ -130,27 +130,27 @@ export class GraphQLTool {
         return query.replace(/\bstatus\s*\{[^{}]*\}/gm, "status");
     }
 
-    private async stageDataInDurableObject(graphqlResult: any, env: CivicEnv): Promise<any> {
+    private async stageDataInDurableObject(graphqlResult: GraphQLResponse, env: CivicEnv): Promise<unknown> {
         if (!env?.JSON_TO_SQL_DO) {
             throw new Error("JSON_TO_SQL_DO binding not available");
         }
-        
+
         const accessId = crypto.randomUUID();
         const doId = env.JSON_TO_SQL_DO.idFromName(accessId);
         const stub = env.JSON_TO_SQL_DO.get(doId);
-        
+
         const response = await stub.fetch("http://do/process", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(graphqlResult)
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`DO staging failed: ${errorText}`);
         }
-        
-        const processingResult = await response.json() as any;
+
+        const processingResult = await response.json() as { table_count?: number; total_rows?: number; [key: string]: unknown };
         this.datasetRegistry.set(accessId, {
             created: new Date().toISOString(),
             table_count: processingResult.table_count,

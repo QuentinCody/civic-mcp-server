@@ -21,6 +21,14 @@ export interface SQLToolConfig {
     };
 }
 
+interface SQLQueryResult {
+    query_type?: string;
+    row_count?: number;
+    column_names?: string[];
+    chunked_content_resolved?: boolean;
+    [key: string]: unknown;
+}
+
 export class SQLTool {
     private errorHandler: ErrorHandler;
     private config: SQLToolConfig;
@@ -43,7 +51,7 @@ export class SQLTool {
         };
     }
 
-    async execute(params: { data_access_id: string; sql: string; params?: string[] }, env: any) {
+    async execute(params: { data_access_id: string; sql: string; params?: string[] }, env: CivicEnv) {
         const startTime = Date.now();
         try {
             const queryResult = await this.executeSQLQuery(params.data_access_id, params.sql, env);
@@ -71,7 +79,7 @@ export class SQLTool {
         }
     }
 
-    private async executeSQLQuery(dataAccessId: string, sql: string, env: CivicEnv): Promise<any> {
+    private async executeSQLQuery(dataAccessId: string, sql: string, env: CivicEnv): Promise<SQLQueryResult> {
         if (!env?.JSON_TO_SQL_DO) {
             throw new Error("JSON_TO_SQL_DO binding not available");
         }

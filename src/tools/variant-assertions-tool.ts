@@ -68,9 +68,9 @@ export class VariantAssertionsTool {
         }
     }
 
-    private async getVariantAssertions(molecularProfileId?: number, molecularProfileName?: string): Promise<any> {
+    private async getVariantAssertions(molecularProfileId?: number, molecularProfileName?: string): Promise<Record<string, unknown>> {
         let query: string;
-        let variables: Record<string, any> = {};
+        let variables: Record<string, unknown> = {};
         
         if (molecularProfileId) {
             query = `

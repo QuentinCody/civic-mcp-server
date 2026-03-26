@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import { JsonToSqlDO } from "./do.js";
 import { GraphQLClient, GraphQLClientConfig } from "./utils/graphql-client.js";
-import { GraphQLTool, GraphQLToolConfig } from "./tools/graphql-tool.js";
+import { GraphQLTool, GraphQLToolConfig, type CivicEnv } from "./tools/graphql-tool.js";
 import { SQLTool, SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
 // CIViC: Clinical Interpretation of Variants in Cancer
@@ -131,10 +131,10 @@ export class CivicMCP extends McpAgent {
 			API_CONFIG.tools.graphql.description,
 			{
 				query: z.string().describe("GraphQL query string"),
-				variables: z.record(z.string(), z.any()).optional().describe("Optional variables for the GraphQL query"),
+				variables: z.record(z.string(), z.unknown()).optional().describe("Optional variables for the GraphQL query"),
 			},
 			async ({ query, variables }) => {
-				return await this.graphqlTool.execute({ query, variables }, this.env as unknown as Cloudflare.Env);
+				return await this.graphqlTool.execute({ query, variables }, this.env as unknown as CivicEnv);
 			}
 		);
 
@@ -148,7 +148,7 @@ export class CivicMCP extends McpAgent {
 				params: z.array(z.string()).optional().describe("Optional query parameters"),
 			},
 			async ({ data_access_id, sql, params }) => {
-				return await this.sqlTool.execute({ data_access_id, sql, params }, this.env as unknown as Cloudflare.Env);
+				return await this.sqlTool.execute({ data_access_id, sql, params }, this.env as unknown as CivicEnv);
 			}
 		);
 

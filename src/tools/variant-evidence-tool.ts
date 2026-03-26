@@ -71,9 +71,9 @@ export class VariantEvidenceTool {
         }
     }
 
-    private async getVariantEvidence(molecularProfileId?: number, molecularProfileName?: string, limit: number = 10): Promise<any> {
+    private async getVariantEvidence(molecularProfileId?: number, molecularProfileName?: string, limit: number = 10): Promise<unknown> {
         let query: string;
-        let variables: Record<string, any> = { first: Math.min(limit, 50) };
+        let variables: Record<string, unknown> = { first: Math.min(limit, 50) };
         
         if (molecularProfileId) {
             query = `

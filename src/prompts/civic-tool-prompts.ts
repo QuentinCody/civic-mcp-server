@@ -14,7 +14,7 @@ import { z } from "zod";
  * - Rich field selection including therapies, assertionDirection, evidenceLevel
  * - Proper enum values (e.g., SENSITIVITYRESPONSE not SENSITIVITY_RESPONSE)
  */
-export function registerCivicPrompts(server: McpServer) {
+export function registerCivicPrompts(server: McpServer): void {
   
   // ---- get-variant-evidence (PROMPT) ----
   server.registerPrompt(
