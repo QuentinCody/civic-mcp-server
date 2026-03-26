@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GraphQLClient } from "../utils/graphql-client.js";
+import { GraphQLClient, type GraphQLResponse } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
 export interface VariantAssertionsToolConfig {
@@ -47,18 +47,25 @@ export class VariantAssertionsTool {
 
             const result = await this.getVariantAssertions(params.molecular_profile_id, params.molecular_profile_name);
             const executionTime = Date.now() - startTime;
-            
-            return { 
-                content: [{ 
-                    type: "text" as const, 
-                    text: JSON.stringify(result) 
+
+            // Extract assertion count from nested GraphQL response
+            const profiles = result.data?.molecularProfiles as Record<string, unknown> | undefined;
+            const nodes = profiles?.nodes as Record<string, unknown>[] | undefined;
+            const firstNode = nodes?.[0];
+            const assertions = firstNode?.assertions as Record<string, unknown> | undefined;
+            const assertionNodes = assertions?.nodes as unknown[] | undefined;
+
+            return {
+                content: [{
+                    type: "text" as const,
+                    text: JSON.stringify(result)
                 }],
                 _meta: {
                     tool_type: "variant_assertions",
                     execution_time_ms: executionTime,
                     molecular_profile_id: params.molecular_profile_id,
                     molecular_profile_name: params.molecular_profile_name,
-                    assertion_count: result.data?.molecularProfiles?.nodes?.[0]?.assertions?.nodes?.length || 0,
+                    assertion_count: assertionNodes?.length || 0,
                     timestamp: new Date().toISOString()
                 }
             };
@@ -68,7 +75,7 @@ export class VariantAssertionsTool {
         }
     }
 
-    private async getVariantAssertions(molecularProfileId?: number, molecularProfileName?: string): Promise<Record<string, unknown>> {
+    private async getVariantAssertions(molecularProfileId?: number, molecularProfileName?: string): Promise<GraphQLResponse> {
         let query: string;
         let variables: Record<string, unknown> = {};
         
