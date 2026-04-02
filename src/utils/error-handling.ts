@@ -29,6 +29,15 @@ export class ErrorHandler {
             direction: "assertionDirection",
             type: "assertionType",
         },
+        Region: {
+            cytobands: "cytogeneticRegions",
+            regions: "cytogeneticRegions",
+            chromosome: "cytogeneticRegions",
+        },
+        RegionVariant: {
+            iscn: "iscnName",
+            iscnNotation: "iscnName",
+        },
     };
 
     constructor(graphqlClient: GraphQLClient) {

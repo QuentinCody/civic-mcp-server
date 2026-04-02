@@ -314,12 +314,37 @@ export class GraphQLClient {
     entrezId: Int
     description: String
     variants: [Variant!]!`,
-            'Variant': `Variant (OBJECT) 
+            'Variant': `Variant (OBJECT)
   Fields:
     id: Int!
     name: String!
     variantTypes: [VariantType!]!
     singleVariantMolecularProfile: MolecularProfile`,
+            'RegionVariant': `RegionVariant (OBJECT)
+  Fields:
+    id: Int!
+    name: String!
+    iscnName: String
+    feature: Feature!
+    variantTypes: [VariantType!]!
+    singleVariantMolecularProfile: MolecularProfile!
+    molecularProfiles: MolecularProfileConnection!`,
+            'Region': `Region (OBJECT)
+  Fields:
+    id: Int!
+    name: String!
+    featureType: FeatureInstanceTypes!
+    link: String!
+    description: String
+    cytogeneticRegions: [CytogeneticRegion!]
+    variants: RegionVariantConnection!
+    fullName: String`,
+            'CytogeneticRegion': `CytogeneticRegion (OBJECT)
+  Fields:
+    id: Int!
+    name: String!
+    chromosome: String!
+    band: String`,
             'EvidenceItem': `EvidenceItem (OBJECT)
   Fields:
     id: Int!
@@ -360,6 +385,9 @@ export class GraphQLClient {
         const commonFields: Record<string, string[]> = {
             'Gene': ['id', 'name', 'entrezId', 'description', 'variants'],
             'Variant': ['id', 'name', 'variantTypes', 'singleVariantMolecularProfile'],
+            'RegionVariant': ['id', 'name', 'iscnName', 'feature', 'variantTypes', 'singleVariantMolecularProfile', 'molecularProfiles'],
+            'Region': ['id', 'name', 'featureType', 'link', 'description', 'cytogeneticRegions', 'variants', 'fullName'],
+            'CytogeneticRegion': ['id', 'name', 'chromosome', 'band'],
             'EvidenceItem': ['id', 'description', 'evidenceLevel', 'evidenceType', 'significance', 'status'],
             'Disease': ['id', 'name', 'doid', 'displayName'],
             'Therapy': ['id', 'name', 'ncitId'],

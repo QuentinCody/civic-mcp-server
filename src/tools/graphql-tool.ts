@@ -6,6 +6,7 @@ export interface CivicEnv {
     MCP_HOST?: string;
     MCP_PORT?: string;
     JSON_TO_SQL_DO: DurableObjectNamespace;
+    CODE_MODE_LOADER?: { get: (...args: unknown[]) => unknown };
 }
 
 export interface GraphQLToolConfig {

@@ -6,6 +6,7 @@ import { GraphQLClient, GraphQLClientConfig } from "./utils/graphql-client.js";
 import { GraphQLTool, GraphQLToolConfig, type CivicEnv } from "./tools/graphql-tool.js";
 import { SQLTool, SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
+import { registerCodeMode } from "./tools/code-mode.js";
 // CIViC: Clinical Interpretation of Variants in Cancer
 // Uses GraphQL API at graphql.civicdb.org
 // Powered by the CIViC knowledgebase (civicdb.org)
@@ -42,6 +43,15 @@ KEY QUERY PATTERNS — CIViC uses non-standard argument names:
   (requires gene ID from gene query — does NOT accept gene symbol)
 • Evidence items: { evidenceItems(first: 10) { nodes { id status } } }
   (status is a scalar enum/string, not an object)
+• Region by ID: { region(id: 62862) { id name featureType cytogeneticRegions { chromosome band } variants { nodes { id name iscnName } } } }
+• Regions list: { regions(first: 10) { nodes { id name featureType cytogeneticRegions { chromosome band } } } }
+  (filterable by name, iscnName — Regions are chromosome/cytoband-level features for karyotype, FISH, CMA, WGS variants)
+• Cytoband typeahead: { cytogeneticRegionTypeahead(queryTerm: "17p") { id name chromosome band } }
+• Region variant names: { regionVariantNamesForFeatureId(featureId: 62862) }
+
+FEATURE TYPES: CIViC has 4 feature types — Gene, Factor, Fusion, Region.
+Regions represent chromosome/cytoband-level variation (e.g., 17p Deletion, 1q21.2 Amplification).
+Region variants carry ISCN (2024) notation in their 'iscnName' field (e.g., del(17p), amp(1q21.2)).
 
 Use introspection { __type(name: "Query") { fields { name args { name type { name } } } } } to discover additional fields. Results will be staged to SQLite.`,
 			
@@ -79,7 +89,8 @@ Use introspection { __type(name: "Query") { fields { name args { name type { nam
 	}
 };
 
-// In-memory registry of staged datasets
+// In-memory cache of staged datasets — lost on Worker eviction/restart.
+// Not durable; only used for convenience lookups during a single instance lifecycle.
 const datasetRegistry = new Map<string, { created: string; table_count?: number; total_rows?: number }>();
 
 // ========================================
@@ -154,6 +165,12 @@ export class CivicMCP extends McpAgent {
 
 		// Register MCP Prompts that guide LLM to use civic_graphql_query
 		registerCivicPrompts(this.server);
+
+		// Register Code Mode (GraphQL execute tool)
+		const civicEnv = this.env as unknown as CivicEnv;
+		if (civicEnv.CODE_MODE_LOADER) {
+			registerCodeMode(this.server, civicEnv as unknown as Parameters<typeof registerCodeMode>[1]);
+		}
 	}
 }
 
@@ -312,6 +329,7 @@ function getDocumentationHTML(baseUrl: string): string {
             <li>"What is the clinical significance of BRAF V600E in melanoma?"</li>
             <li>"What therapies are effective for EGFR L858R in lung cancer?"</li>
             <li>"Show me evidence for ALK fusions in non-small cell lung cancer"</li>
+            <li>"What is the significance of 17p deletion in multiple myeloma?"</li>
         </ul>
     </div>
 

@@ -109,6 +109,10 @@ Notes:
 - Full URLs: https://civicdb.org{link} (e.g., https://civicdb.org/evidence/6031)
 - Use proper enum values: SENSITIVITYRESPONSE not SENSITIVITY_RESPONSE
 - IMPORTANT: Null/undefined parameters are automatically excluded from the query to avoid over-filtering
+- CIViC has 4 Feature types: Gene, Factor, Fusion, and Region.
+  Regions represent chromosome/cytoband-level variation (e.g., 17p Deletion, 1q21.2 Amplification).
+  For region-based queries, molecular profile names use the format "<region> <variant>" (e.g., "17p Deletion").
+  Region variants carry ISCN (2024) notation in the 'iscnName' field (e.g., del(17p), amp(1q21.2)).
 - Return the JSON result exactly; summarize only if the user asks.
 `
           }
@@ -230,6 +234,10 @@ IMPORTANT NOTES:
 - Canonical URLs: https://civicdb.org/assertions/{id}
 - Use proper enum values: SENSITIVITYRESPONSE not SENSITIVITY_RESPONSE
 - Parameters are automatically filtered to avoid over-restricting results
+- CIViC has 4 Feature types: Gene, Factor, Fusion, and Region.
+  Regions represent chromosome/cytoband-level variation (e.g., 17p Deletion, 1q21.2 Amplification).
+  For region-based queries, use molecular profile names like "17p Deletion" or variant names like "Deletion".
+  Region variants carry ISCN (2024) notation in the 'iscnName' field (e.g., del(17p)).
 `
           }
         }
@@ -400,7 +408,10 @@ IMPORTANT NOTES:
 - Evidence URLs: https://civicdb.org{link} (link field from evidence)
 - Assertion URLs: https://civicdb.org/assertions/{id} (construct from id)
 - Use proper enum values: SENSITIVITYRESPONSE not SENSITIVITY_RESPONSE
-- Parameters are automatically filtered to avoid over-restricting results`
+- Parameters are automatically filtered to avoid over-restricting results
+- CIViC has 4 Feature types: Gene, Factor, Fusion, and Region.
+  Regions represent chromosome/cytoband-level variation (e.g., 17p Deletion, 1q21.2 Amplification).
+  Region variants carry ISCN (2024) notation in the 'iscnName' field (e.g., del(17p), amp(1q21.2)).`
           }
         }
       ]
