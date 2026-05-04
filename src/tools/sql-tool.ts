@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ErrorHandler } from "../utils/error-handling.js";
-import { GraphQLClient } from "../utils/graphql-client.js";
+import type { GraphQLClient } from "../utils/graphql-client.js";
 
 export interface CivicEnv {
     MCP_HOST?: string;

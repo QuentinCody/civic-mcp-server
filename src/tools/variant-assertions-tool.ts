@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GraphQLClient, type GraphQLResponse } from "../utils/graphql-client.js";
+import type { GraphQLClient, GraphQLResponse } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
 export interface VariantAssertionsToolConfig {
@@ -77,7 +77,7 @@ export class VariantAssertionsTool {
 
     private async getVariantAssertions(molecularProfileId?: number, molecularProfileName?: string): Promise<GraphQLResponse> {
         let query: string;
-        let variables: Record<string, unknown> = {};
+        const variables: Record<string, unknown> = {};
         
         if (molecularProfileId) {
             query = `

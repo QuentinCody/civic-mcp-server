@@ -2,9 +2,9 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import { JsonToSqlDO } from "./do.js";
-import { GraphQLClient, GraphQLClientConfig } from "./utils/graphql-client.js";
-import { GraphQLTool, GraphQLToolConfig, type CivicEnv } from "./tools/graphql-tool.js";
-import { SQLTool, SQLToolConfig } from "./tools/sql-tool.js";
+import { GraphQLClient, type GraphQLClientConfig } from "./utils/graphql-client.js";
+import { GraphQLTool, type GraphQLToolConfig, type CivicEnv } from "./tools/graphql-tool.js";
+import { SQLTool, type SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
 import { registerCodeMode } from "./tools/code-mode.js";
 // CIViC: Clinical Interpretation of Variants in Cancer

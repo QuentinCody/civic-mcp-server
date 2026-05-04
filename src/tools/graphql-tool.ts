@@ -1,5 +1,5 @@
 import { z } from "zod/v3";
-import { GraphQLClient, type GraphQLResponse, type GraphQLError } from "../utils/graphql-client.js";
+import type { GraphQLClient, GraphQLResponse, GraphQLError } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
 export interface CivicEnv {

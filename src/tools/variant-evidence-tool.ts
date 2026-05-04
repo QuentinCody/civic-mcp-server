@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GraphQLClient, type GraphQLResponse } from "../utils/graphql-client.js";
+import type { GraphQLClient, GraphQLResponse } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
 export interface VariantEvidenceToolConfig {
@@ -73,7 +73,7 @@ export class VariantEvidenceTool {
 
     private async getVariantEvidence(molecularProfileId?: number, molecularProfileName?: string, limit: number = 10): Promise<GraphQLResponse> {
         let query: string;
-        let variables: Record<string, unknown> = { first: Math.min(limit, 50) };
+        const variables: Record<string, unknown> = { first: Math.min(limit, 50) };
         
         if (molecularProfileId) {
             query = `

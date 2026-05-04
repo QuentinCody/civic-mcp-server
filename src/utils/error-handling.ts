@@ -1,4 +1,4 @@
-import { GraphQLClient, type GraphQLResponse, type GraphQLError } from './graphql-client.js';
+import type { GraphQLClient, GraphQLResponse, GraphQLError } from './graphql-client.js';
 
 export interface ErrorResponse {
     [x: string]: unknown;
