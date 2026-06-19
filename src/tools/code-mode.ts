@@ -75,6 +75,8 @@ export function registerCodeMode(
 
 	const executeTool = createGraphqlExecuteTool({
 		prefix: "civic",
+		// Verifiable provenance: civic_execute results carry a _meta.citation.
+		source: { id: "civic", name: "CIViC", url: "https://civicdb.org", license: "CC0 1.0" },
 		apiName: "CIViC",
 		gqlFetch,
 		doNamespace: env.JSON_TO_SQL_DO,
