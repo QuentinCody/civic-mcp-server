@@ -21,9 +21,7 @@ This server implements **MCP 2025-06-18** specification with the following compl
   - Need SDK update to support annotation parameters
 
 ### ⚠️ Pending Implementation
-- **Streamable HTTP Transport**: Currently uses SSE transport
-  - **Action Required**: Migrate from HTTP+SSE to Streamable HTTP per MCP 2025-03-26
-  - **Status**: Architecture change needed for proper implementation
+- **Streamable HTTP Transport**: ✅ Done — serves Streamable HTTP at `/mcp` (`CivicMCP.serve("/mcp")`); the legacy HTTP+SSE transport has been removed
 - **OAuth 2.1 Authorization**: Not implemented
   - **Action Required**: Add OAuth 2.1 support for secure remote server access
   - **Components**: Authorization Server discovery, Resource Indicators (RFC 8707)
@@ -53,13 +51,10 @@ annotations: {
 
 ## Future Updates Required
 
-### 1. Transport Layer Migration
+### 1. Transport Layer Migration ✅ Done
 ```typescript
-// Current: SSE Transport (deprecated)
-CivicMCP.serveSSE("/sse").fetch(request, env, ctx)
-
-// Target: Streamable HTTP Transport (MCP 2025-03-26+)
-// Implementation requires MCP SDK architectural updates
+// Now: Streamable HTTP Transport (MCP 2025-03-26+)
+CivicMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx)
 ```
 
 ### 2. Tool Annotation Integration
@@ -84,7 +79,7 @@ this.server.tool(name, description, schema, handler, annotations) // ❌
 
 ### MCP 2025-03-26 (Implemented)
 - ✅ Tool annotations framework
-- ⚠️ Streamable HTTP transport (pending)
+- ✅ Streamable HTTP transport
 - ✅ Audio data support (infrastructure ready)
 - ⚠️ OAuth 2.1 authorization (pending)
 
@@ -101,9 +96,10 @@ this.server.tool(name, description, schema, handler, annotations) // ❌
 - **GraphQL to SQL Conversion**: Automatically converts CIViC API responses into structured SQLite tables
 - **Efficient Data Storage**: Uses Cloudflare Durable Objects with SQLite for data staging and querying
 - **Smart Response Handling**: Optimizes performance by bypassing staging for small responses, errors, and schema introspection queries
-- **Two-Tool Pipeline**: 
+- **Tool Pipeline**: 
   1. `civic_graphql_query`: Executes GraphQL queries and stages large datasets
   2. `civic_query_sql`: Enables SQL-based analysis of staged data
+  3. `civic_execute`: Code Mode — runs JavaScript in a V8 isolate with `gql.query()` and schema helpers for full GraphQL access
 
 ## Installation & Configuration
 
@@ -143,7 +139,7 @@ Add this configuration to your `claude_desktop_config.json` file:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://civic-mcp-server.quentincody.workers.dev/sse"
+        "https://civic-mcp-server.quentincody.workers.dev/mcp"
       ]
     }
   }
@@ -154,10 +150,11 @@ Replace `quentincody` with your actual Cloudflare Workers subdomain.
 
 ## Usage
 
-Once configured, restart Claude Desktop. The server provides two main tools:
+Once configured, restart Claude Desktop. The server provides three main tools:
 
 1. **`civic_graphql_query`**: Execute GraphQL queries against the CIViC API
 2. **`civic_query_sql`**: Query staged data using SQL
+3. **`civic_execute`**: Code Mode — write JavaScript against the CIViC GraphQL API in a V8 isolate
 
 ## Prompts
 
@@ -209,20 +206,6 @@ The server intelligently optimizes context usage by storing large results in a t
 - **Schema introspection queries**: Queries containing `__schema`, `__type`, or other introspection patterns are returned directly since they contain metadata rather than data suitable for SQL conversion
 
 This optimization makes the server more efficient and provides better error visibility while still enabling powerful SQL-based analysis for substantial datasets.
-
-## Dataset management
-
-Two helper endpoints are available outside of the SSE interface for managing staged datasets.
-
-- `GET /datasets` – lists the currently available `data_access_id`s with creation time and basic metadata.
-- `DELETE /datasets/:id` – removes the specified dataset and frees storage.
-
-Example:
-
-```bash
-curl https://civic-mcp-server.YOUR_SUBDOMAIN.workers.dev/datasets
-curl -X DELETE https://civic-mcp-server.YOUR_SUBDOMAIN.workers.dev/datasets/abcd-1234
-```
 
 ## License
 

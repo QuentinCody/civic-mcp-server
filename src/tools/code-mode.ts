@@ -6,11 +6,22 @@
  * in the preamble so the LLM can avoid common pitfalls.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { SourceDescriptor } from "@bio-mcp/shared";
 import { createGraphqlExecuteTool } from "@bio-mcp/shared/codemode/graphql-execute-tool";
 import type { GraphqlFetchFn } from "@bio-mcp/shared/codemode/graphql-introspection";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const CIVIC_ENDPOINT = "https://civicdb.org/api/graphql";
+
+// Verifiable provenance: the canonical CIViC source descriptor, shared by the
+// civic_execute Code Mode tool and the civic_graphql_query passthrough so both
+// stamp _meta.citation identically (single source of truth — avoids drift).
+export const CIVIC_SOURCE: SourceDescriptor = {
+	id: "civic",
+	name: "CIViC",
+	url: "https://civicdb.org",
+	license: "CC0 1.0",
+};
 
 // CIViC-specific quirks and helpers injected into the V8 isolate
 const CIVIC_PREAMBLE = `
@@ -76,7 +87,7 @@ export function registerCodeMode(
 	const executeTool = createGraphqlExecuteTool({
 		prefix: "civic",
 		// Verifiable provenance: civic_execute results carry a _meta.citation.
-		source: { id: "civic", name: "CIViC", url: "https://civicdb.org", license: "CC0 1.0" },
+		source: CIVIC_SOURCE,
 		apiName: "CIViC",
 		gqlFetch,
 		doNamespace: env.JSON_TO_SQL_DO,

@@ -1,4 +1,5 @@
 import { z } from "zod/v3";
+import { buildPassthroughCitation, type Citation, type SourceDescriptor } from "@bio-mcp/shared";
 import type { GraphQLClient, GraphQLResponse, GraphQLError } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
@@ -28,16 +29,19 @@ export class GraphQLTool {
     private errorHandler: ErrorHandler;
     private config: GraphQLToolConfig;
     private datasetRegistry: Map<string, { created: string; table_count?: number; total_rows?: number }>;
+    private source?: SourceDescriptor;
 
     constructor(
         graphqlClient: GraphQLClient,
         config: GraphQLToolConfig,
-        datasetRegistry: Map<string, { created: string; table_count?: number; total_rows?: number }>
+        datasetRegistry: Map<string, { created: string; table_count?: number; total_rows?: number }>,
+        source?: SourceDescriptor
     ) {
         this.graphqlClient = graphqlClient;
         this.errorHandler = new ErrorHandler(graphqlClient);
         this.config = config;
         this.datasetRegistry = datasetRegistry;
+        this.source = source;
     }
 
     getToolDefinition() {
@@ -98,12 +102,32 @@ export class GraphQLTool {
             // Intelligent Staging Logic
             const responseString = JSON.stringify(graphqlResult);
             if (responseString.length > this.config.stagingThresholdBytes) {
-                // Response is large, stage it
+                // Response is large, stage it. Cite the staged GraphQL data
+                // (not the staging envelope), with the access id + row count.
                 const stagingResult = await this.stageDataInDurableObject(graphqlResult, env);
-                return { content: [{ type: "text" as const, text: JSON.stringify(stagingResult) }] };
+                const meta = await this.buildCitationMeta({
+                    query: params.query,
+                    variables: params.variables,
+                    result: graphqlResult,
+                    recordCount: stagingResult.processing_details.total_rows,
+                    dataAccessId: stagingResult.data_access_id,
+                });
+                return {
+                    content: [{ type: "text" as const, text: JSON.stringify(stagingResult) }],
+                    structuredContent: { ...stagingResult, _meta: meta },
+                };
             } else {
-                // Response is small, return it directly
-                return { content: [{ type: "text" as const, text: responseString }] };
+                // Response is small, return it directly (well below the staging
+                // threshold, so it is safe to carry inline in structuredContent).
+                const meta = await this.buildCitationMeta({
+                    query: params.query,
+                    variables: params.variables,
+                    result: graphqlResult,
+                });
+                return {
+                    content: [{ type: "text" as const, text: responseString }],
+                    structuredContent: { ...graphqlResult, _meta: meta },
+                };
             }
         } catch (error) {
             return this.errorHandler.createErrorResponse("GraphQL execution failed", error);
@@ -131,7 +155,7 @@ export class GraphQLTool {
         return query.replace(/\bstatus\s*\{[^{}]*\}/gm, "status");
     }
 
-    private async stageDataInDurableObject(graphqlResult: GraphQLResponse, env: CivicEnv): Promise<unknown> {
+    private async stageDataInDurableObject(graphqlResult: GraphQLResponse, env: CivicEnv): Promise<StagingResult> {
         if (!env?.JSON_TO_SQL_DO) {
             throw new Error("JSON_TO_SQL_DO binding not available");
         }
@@ -151,7 +175,7 @@ export class GraphQLTool {
             throw new Error(`DO staging failed: ${errorText}`);
         }
 
-        const processingResult = await response.json() as { table_count?: number; total_rows?: number; [key: string]: unknown };
+        const processingResult = await response.json() as ProcessingResult;
         this.datasetRegistry.set(accessId, {
             created: new Date().toISOString(),
             table_count: processingResult.table_count,
@@ -162,4 +186,36 @@ export class GraphQLTool {
             processing_details: processingResult
         };
     }
+
+    // Verifiable provenance: build the _meta.citation envelope for a passthrough
+    // result so civic_graphql_query shows up in the chat Sources strip, exactly
+    // like the civic_execute Code Mode tool. Returns {} when no source is set.
+    private buildCitationMeta(args: {
+        query: string;
+        variables?: Record<string, unknown>;
+        result: unknown;
+        recordCount?: number;
+        dataAccessId?: string;
+    }): Promise<{ citation?: Citation }> {
+        return buildPassthroughCitation({
+            source: this.source,
+            server: "civic",
+            tool: this.config.name,
+            query: { query: args.query, variables: args.variables },
+            result: args.result,
+            recordCount: args.recordCount,
+            dataAccessId: args.dataAccessId,
+        });
+    }
+}
+
+interface ProcessingResult {
+    table_count?: number;
+    total_rows?: number;
+    [key: string]: unknown;
+}
+
+interface StagingResult {
+    data_access_id: string;
+    processing_details: ProcessingResult;
 }

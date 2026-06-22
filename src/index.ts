@@ -6,7 +6,7 @@ import { GraphQLClient, type GraphQLClientConfig } from "./utils/graphql-client.
 import { GraphQLTool, type GraphQLToolConfig, type CivicEnv } from "./tools/graphql-tool.js";
 import { SQLTool, type SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
-import { registerCodeMode } from "./tools/code-mode.js";
+import { registerCodeMode, CIVIC_SOURCE } from "./tools/code-mode.js";
 // CIViC: Clinical Interpretation of Variants in Cancer
 // Uses GraphQL API at graphql.civicdb.org
 // Powered by the CIViC knowledgebase (civicdb.org)
@@ -124,7 +124,10 @@ export class CivicMCP extends McpAgent {
 				stagingThresholdBytes: API_CONFIG.stagingThresholdBytes,
 				annotations: API_CONFIG.tools.graphql.annotations
 			} as GraphQLToolConfig,
-			datasetRegistry
+			datasetRegistry,
+			// Verifiable provenance: tag civic_graphql_query results with
+			// _meta.citation so passthrough queries appear in the Sources strip.
+			CIVIC_SOURCE
 		);
 		
 		this.sqlTool = new SQLTool(
