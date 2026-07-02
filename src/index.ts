@@ -376,6 +376,14 @@ export default {
 		const url = new URL(request.url);
 		const baseUrl = `${url.protocol}//${url.host}`;
 
+		// Health check endpoint
+		if (url.pathname === "/health") {
+			return new Response("ok", {
+				status: 200,
+				headers: { "content-type": "text/plain" },
+			});
+		}
+
 		// Handle standard MCP requests
 		if (url.pathname.startsWith("/mcp")) {
 			// For GET requests, return human-readable documentation
