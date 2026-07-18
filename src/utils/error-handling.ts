@@ -6,13 +6,24 @@ export interface ErrorResponse {
         type: "text";
         text: string;
     }>;
+    /**
+     * Fleet contract: an error MUST carry structuredContent with success:false and
+     * isError:true. Without them a failure reads as a SUCCESS to any checker that
+     * inspects `isError` / `structuredContent.success` — which is how these tools
+     * used to go green against a dead API.
+     */
+    structuredContent: {
+        [x: string]: unknown;
+        success: false;
+        error: { code: string; message: string };
+    };
     _meta?: {
         error: boolean;
         error_type: string;
         execution_time_ms: number;
         timestamp: string;
     };
-    isError?: boolean;
+    isError: true;
 }
 
 export class ErrorHandler {
@@ -44,20 +55,54 @@ export class ErrorHandler {
         this.graphqlClient = graphqlClient;
     }
 
+    /** A thrown execution failure (HTTP error, staging failure, bad SQL, …). Uncited. */
     createErrorResponse(message: string, error: unknown, executionTime?: number): ErrorResponse {
+        const details = error instanceof Error ? error.message : String(error);
+        const timestamp = new Date().toISOString();
         return {
             content: [{
                 type: "text" as const,
                 text: JSON.stringify({
                     success: false,
                     error: message,
-                    details: error instanceof Error ? error.message : String(error),
-                    timestamp: new Date().toISOString()
+                    details,
+                    timestamp
                 }, null, 2)
             }],
+            structuredContent: {
+                success: false,
+                error: { code: "EXECUTION_FAILED", message: `${message}: ${details}` }
+            },
+            isError: true,
             _meta: {
                 error: true,
                 error_type: error instanceof Error ? error.constructor.name : "UnknownError",
+                execution_time_ms: executionTime || 0,
+                timestamp
+            }
+        };
+    }
+
+    /**
+     * An upstream GraphQL rejection — HTTP 200 + `{errors:[…]}` with NO data.
+     * `enhancedText` keeps the schema-drift suggestions built by
+     * {@link enhanceGraphQLErrorResponse} in `content`; `structuredContent` carries the
+     * machine-readable verdict. Deliberately uncited: stamping provenance on an error
+     * payload is the citation-forgery path.
+     */
+    createGraphqlErrorResponse(messages: string[], enhancedText: string, executionTime?: number): ErrorResponse {
+        const message = messages.join("; ");
+        console.error(`CIViC GraphQL query failed: ${message}`);
+        return {
+            content: [{ type: "text" as const, text: enhancedText }],
+            structuredContent: {
+                success: false,
+                error: { code: "GRAPHQL_ERROR", message }
+            },
+            isError: true,
+            _meta: {
+                error: true,
+                error_type: "GraphQLError",
                 execution_time_ms: executionTime || 0,
                 timestamp: new Date().toISOString()
             }

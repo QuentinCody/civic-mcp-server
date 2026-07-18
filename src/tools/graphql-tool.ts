@@ -1,5 +1,5 @@
 import { z } from "zod/v3";
-import { buildPassthroughCitation, type Citation, type SourceDescriptor } from "@bio-mcp/shared";
+import { buildPassthroughCitation, type Citation, inspectGraphqlErrors, type SourceDescriptor } from "@bio-mcp/shared";
 import type { GraphQLClient, GraphQLResponse, GraphQLError } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
 
@@ -94,10 +94,16 @@ export class GraphQLTool {
                 }
             }
 
-            if (graphqlResult.errors && !graphqlResult.data) {
+            // GraphQL rejects a query with HTTP 200 + {errors:[…]}. Errors WITHOUT data
+            // are an upstream failure — report one, and never cite an error payload.
+            const gqlErr = inspectGraphqlErrors(graphqlResult);
+            if (gqlErr && !gqlErr.partial) {
                 const enhancedError = await this.errorHandler.enhanceGraphQLErrorResponse(graphqlResult, params.query);
-                return { content: [{ type: "text" as const, text: enhancedError }] };
+                return this.errorHandler.createGraphqlErrorResponse(gqlErr.messages, enhancedError);
             }
+            // Errors alongside data: the data is real, so this stays a success — but the
+            // errors ride along so a partial result never reads as clean.
+            const partialErrors = gqlErr?.messages;
 
             // Intelligent Staging Logic
             const responseString = JSON.stringify(graphqlResult);
@@ -114,7 +120,12 @@ export class GraphQLTool {
                 });
                 return {
                     content: [{ type: "text" as const, text: JSON.stringify(stagingResult) }],
-                    structuredContent: { ...stagingResult, _meta: meta },
+                    structuredContent: {
+                        success: true,
+                        ...stagingResult,
+                        ...(partialErrors?.length ? { partial_errors: partialErrors } : {}),
+                        _meta: meta,
+                    },
                 };
             } else {
                 // Response is small, return it directly (well below the staging
@@ -126,7 +137,12 @@ export class GraphQLTool {
                 });
                 return {
                     content: [{ type: "text" as const, text: responseString }],
-                    structuredContent: { ...graphqlResult, _meta: meta },
+                    structuredContent: {
+                        success: true,
+                        ...graphqlResult,
+                        ...(partialErrors?.length ? { partial_errors: partialErrors } : {}),
+                        _meta: meta,
+                    },
                 };
             }
         } catch (error) {
