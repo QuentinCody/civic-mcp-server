@@ -1,3 +1,4 @@
+import { buildHealthResponse, configureCitationSigning } from "@bio-mcp/shared";
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
@@ -108,6 +109,8 @@ export class CivicMCP extends McpAgent {
 	private sqlTool!: SQLTool;
 
 	async init() {
+
+		configureCitationSigning(this.env);
 		// Initialize GraphQL client and tools
 		const graphqlConfig: GraphQLClientConfig = {
 			endpoint: API_CONFIG.endpoint,
@@ -378,10 +381,7 @@ export default {
 
 		// Health check endpoint
 		if (url.pathname === "/health") {
-			return new Response("ok", {
-				status: 200,
-				headers: { "content-type": "text/plain" },
-			});
+			return buildHealthResponse("civic");
 		}
 
 		// Handle standard MCP requests
