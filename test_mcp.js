@@ -5,15 +5,19 @@
  * Tests the SQLite-based MCPlus pipeline with a basic introspection query
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+    Client,
+    StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
+
+const MCP_URL = process.env.MCP_URL || "http://localhost:8790/mcp";
 
 async function testCivicMCP() {
     console.log("🧪 Testing CIViC MCP Server...\n");
 
     try {
-        // Create SSE transport to local server
-        const transport = new SSEClientTransport(new URL("http://localhost:8787/sse"));
+        // Negotiate MCP 2026-07-28 over stateless Streamable HTTP.
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));
         const client = new Client(
             {
                 name: "test-client",
@@ -23,6 +27,7 @@ async function testCivicMCP() {
                 capabilities: {
                     tools: {},
                 },
+                versionNegotiation: { mode: "auto" },
             }
         );
 
@@ -63,7 +68,7 @@ async function testCivicMCP() {
         const response1 = JSON.parse(result1.content[0].text);
         console.log(`  - Success: ${!response1.error}`);
         console.log(`  - Data Access ID: ${response1.data_access_id || 'N/A'}`);
-        
+
         if (response1.processing_details) {
             const details = response1.processing_details;
             console.log(`  - Tables Created: ${details.table_count || 0}`);
@@ -80,7 +85,7 @@ async function testCivicMCP() {
         // Test Tool #2: Query the staged data (if Tool #1 succeeded)
         if (response1.data_access_id && !response1.processing_details?.error) {
             console.log("🔍 Testing Tool #2 (civic_query_sql) with simple query...");
-            
+
             // First, get table names
             const result2 = await client.callTool({
                 name: "civic_query_sql",
@@ -94,17 +99,17 @@ async function testCivicMCP() {
             const response2 = JSON.parse(result2.content[0].text);
             console.log(`  - Success: ${response2.success}`);
             console.log(`  - Rows Returned: ${response2.rowCount || 0}`);
-            
+
             if (response2.success && response2.results.length > 0) {
                 console.log("  - Available Tables:");
                 response2.results.forEach(row => {
                     console.log(`    • ${row.name}`);
                 });
-                
+
                 // Try to query the first table
                 const firstTable = response2.results[0].name;
                 console.log(`\n🔎 Querying first table: ${firstTable}`);
-                
+
                 const result3 = await client.callTool({
                     name: "civic_query_sql",
                     arguments: {
@@ -112,7 +117,7 @@ async function testCivicMCP() {
                         sql: `SELECT * FROM ${firstTable} LIMIT 3`
                     }
                 });
-                
+
                 const response3 = JSON.parse(result3.content[0].text);
                 console.log(`  - Success: ${response3.success}`);
                 console.log(`  - Sample Records: ${response3.rowCount || 0}`);
@@ -126,6 +131,7 @@ async function testCivicMCP() {
             console.log("⏭️ Skipping Tool #2 test (Tool #1 failed or no data access ID)");
         }
 
+        await client.close();
         console.log("\n🎉 Test completed!");
 
     } catch (error) {
@@ -135,4 +141,4 @@ async function testCivicMCP() {
 }
 
 // Run the test
-testCivicMCP().catch(console.error); 
+testCivicMCP().catch(console.error);

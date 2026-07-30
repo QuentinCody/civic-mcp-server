@@ -4,7 +4,7 @@
 
 This project is a Cloudflare Workers-based Model Context Protocol (MCP) server that provides tools for querying the CIViC (Clinical Interpretation of Variants in Cancer) API. The server converts GraphQL responses into queryable SQLite tables using Durable Objects for efficient data processing. The CIViC database is a crowd-sourced repository of clinical interpretations of cancer variants. This MCP server enables structured queries and data analysis of cancer genomics information through natural language interactions with AI assistants.
 
-The server is built with TypeScript and utilizes the Cloudflare Workers platform for deployment. It uses the `@modelcontextprotocol/sdk` to implement the MCP specification.
+The server is built with TypeScript and utilizes the Cloudflare Workers platform for deployment. It uses `@modelcontextprotocol/server` v2 through the fleet's stateless Worker adapter to implement MCP 2026-07-28.
 
 ## Building and Running
 
@@ -46,5 +46,5 @@ The following commands are available to build, run, and test the project:
 *   **Formatting and Linting:** The project uses Biome for code formatting and linting. Configuration can be found in `biome.json`.
 *   **Deployment:** The project is deployed to Cloudflare Workers using the Wrangler CLI. Configuration can be found in `wrangler.jsonc`.
 *   **Dependencies:** Project dependencies are managed with npm.
-*   **MCP Implementation:** The server implements the MCP 2025-06-18 specification.
+*   **MCP Implementation:** The server implements the stateless MCP 2026-07-28 specification through the fleet adapter.
 *   **API Interaction:** The server interacts with the CIViC GraphQL API and transforms the data into a queryable format.

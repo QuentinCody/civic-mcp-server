@@ -1,7 +1,7 @@
 import { buildHealthResponse, configureCitationSigning } from "@bio-mcp/shared";
-import { McpAgent } from "agents/mcp";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod/v3";
+import { StatelessMcpWorker } from "@bio-mcp/shared/mcp";
+import { McpServer } from "@bio-mcp/shared/mcp";
+import { z } from "zod";
 import { JsonToSqlDO } from "./do.js";
 import { GraphQLClient, type GraphQLClientConfig } from "./utils/graphql-client.js";
 import { GraphQLTool, type GraphQLToolConfig, type CivicEnv } from "./tools/graphql-tool.js";
@@ -76,7 +76,7 @@ Use introspection { __type(name: "Query") { fields { name args { name type { nam
 • Side Effects: None (read-only operations)
 • Caching: Data is pre-staged and cached
 • Rate Limits: None (local operations)
-• MCP 2025-06-18 Compliant: ✅`,
+• MCP 2026-07-28 Compliant: ✅`,
 			
 			annotations: {
 				destructive: false,
@@ -98,7 +98,7 @@ const datasetRegistry = new Map<string, { created: string; table_count?: number;
 // CORE MCP SERVER CLASS
 // ========================================
 
-export class CivicMCP extends McpAgent {
+export class CivicMCP extends StatelessMcpWorker {
 	server = new McpServer({
 		name: API_CONFIG.name,
 		version: API_CONFIG.version,
@@ -395,7 +395,7 @@ export default {
 			}
 
 			// POST requests go to MCP server as normal
-			return CivicMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
+			return CivicMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
 		// Root path redirects to /mcp documentation

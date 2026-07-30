@@ -1,5 +1,5 @@
 // src/prompts/civic-tool-prompts.ts
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@bio-mcp/shared/mcp";
 import { z } from "zod";
 
 /**

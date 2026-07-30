@@ -6,26 +6,14 @@ The CIViC database is a crowd-sourced repository of clinical interpretations of 
 
 ## MCP Specification Compliance
 
-This server implements **MCP 2025-06-18** specification with the following compliance status:
+This server implements **MCP 2026-07-28** through the fleet's stateless SDK v2 adapter:
 
-### ✅ Implemented Features
-- **Structured Tool Output**: Tools return structured JSON data with `_meta` fields
-- **Protocol Version Headers**: Supports `MCP-Protocol-Version` header handling
-- **Title Fields**: Tools include human-friendly titles for display
-- **Meta Fields**: Extensive use of `_meta` fields for additional context
-- **Error Handling**: Proper error responses with structured content
-
-### 🔄 Partially Implemented
-- **Tool Annotations**: Configuration ready but SDK integration pending
-  - `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` defined
-  - Need SDK update to support annotation parameters
-
-### ⚠️ Pending Implementation
-- **Streamable HTTP Transport**: ✅ Done — serves Streamable HTTP at `/mcp` (`CivicMCP.serve("/mcp")`); the legacy HTTP+SSE transport has been removed
-- **OAuth 2.1 Authorization**: Not implemented
-  - **Action Required**: Add OAuth 2.1 support for secure remote server access
-  - **Components**: Authorization Server discovery, Resource Indicators (RFC 8707)
-- **JSON-RPC Batching**: Properly removed (was added in 2025-03-26, removed in 2025-06-18)
+- `server/discover` replaces initialization and every request carries its protocol/capability envelope.
+- The Worker uses stateless Streamable HTTP with no MCP session Durable Object or `Mcp-Session-Id`.
+- The SDK validates `Mcp-Method` / `Mcp-Name`, stamps `resultType` and `serverInfo`, and supplies cache hints.
+- Tool lists have deterministic registration order.
+- Tools return `content` and `structuredContent` on success and error, with `isError: true` for errors.
+- Large structured results retain the fleet's staging and 100KB transport protections.
 
 ## Tool Annotations Reference
 
@@ -49,47 +37,15 @@ annotations: {
 }
 ```
 
-## Future Updates Required
+## Transport
 
-### 1. Transport Layer Migration ✅ Done
 ```typescript
-// Now: Streamable HTTP Transport (MCP 2025-03-26+)
-CivicMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx)
+// MCP 2026-07-28 stateless Streamable HTTP
+CivicMCP.serve("/mcp").fetch(request, env, ctx)
 ```
 
-### 2. Tool Annotation Integration
-```typescript
-// Current: SDK doesn't support 5-argument tool() method
-this.server.tool(name, description, schema, handler, annotations) // ❌
-
-// Target: Find correct SDK pattern for annotations
-// May require MCP SDK update or different approach
-```
-
-### 3. Authorization Framework
-```typescript
-// Required: OAuth 2.1 integration with:
-// - Authorization Server discovery (.well-known endpoints)
-// - Resource Indicators (RFC 8707) 
-// - Dynamic client registration (RFC 7591)
-// - PKCE-enabled authorization code flow
-```
-
-## Specification Changelog Summary
-
-### MCP 2025-03-26 (Implemented)
-- ✅ Tool annotations framework
-- ✅ Streamable HTTP transport
-- ✅ Audio data support (infrastructure ready)
-- ⚠️ OAuth 2.1 authorization (pending)
-
-### MCP 2025-06-18 (Current Target)
-- ✅ Structured tool output
-- ✅ Enhanced `_meta` fields
-- ✅ Protocol version headers
-- ✅ Title fields for tools
-- ❌ JSON-RPC batching removed (properly removed)
-- ⚠️ Enhanced authorization security (pending)
+The only Durable Objects retained are application/data objects used for staging;
+they are not MCP transport sessions.
 
 ## Features
 

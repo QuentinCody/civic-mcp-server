@@ -1,4 +1,4 @@
-import { z } from "zod/v3";
+import { z } from "zod";
 import { buildPassthroughCitation, type Citation, inspectGraphqlErrors, type SourceDescriptor } from "@bio-mcp/shared";
 import type { GraphQLClient, GraphQLResponse, GraphQLError } from "../utils/graphql-client.js";
 import { ErrorHandler } from "../utils/error-handling.js";
