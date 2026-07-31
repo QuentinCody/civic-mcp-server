@@ -78,10 +78,13 @@ describe("Documentation HTML", () => {
 });
 
 describe("Source Code Routing", () => {
-    it("should have GET handler for /mcp that returns documentation", () => {
-        // Verify the routing logic exists
-        expect(indexContent).toContain('if (request.method === "GET")');
+    it("serves documentation on GET /mcp only to callers that asked for a page", () => {
+        // The docs page used to answer EVERY GET /mcp, including the one an MCP
+        // client opens as its SSE stream — so the client got a 200 HTML document
+        // where a stream belongs. It must now be gated on the Accept header.
         expect(indexContent).toContain("getDocumentationHTML(baseUrl)");
+        expect(indexContent).toContain('includes("text/html")');
+        expect(indexContent).toContain('!(request.headers.get("accept") ?? "").includes("text/event-stream")');
     });
 
     it("should route POST /mcp requests to MCP server", () => {

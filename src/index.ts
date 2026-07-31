@@ -386,8 +386,16 @@ export default {
 
 		// Handle standard MCP requests
 		if (url.pathname.startsWith("/mcp")) {
-			// For GET requests, return human-readable documentation
-			if (request.method === "GET") {
+			// Docs are for humans only. An MCP client opens GET /mcp as its SSE
+			// stream, so answering it with a page preempts the protocol — the
+			// client sees a document where a stream should be. Browsers ask for
+			// text/html and never for text/event-stream; everything else falls
+			// through to the MCP handler.
+			const wantsDocs =
+				request.method === "GET" &&
+				(request.headers.get("accept") ?? "").includes("text/html") &&
+				!(request.headers.get("accept") ?? "").includes("text/event-stream");
+			if (wantsDocs) {
 				return new Response(getDocumentationHTML(baseUrl), {
 					status: 200,
 					headers: { "Content-Type": "text/html; charset=utf-8" }
