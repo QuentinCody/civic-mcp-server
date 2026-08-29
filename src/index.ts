@@ -384,6 +384,13 @@ export default {
 			return buildHealthResponse("civic");
 		}
 
+		if (url.pathname === "/readyz") {
+			// Deep check: builds the MCP server the way a real request does, so a
+			// factory that throws is a 503 here instead of a green /health over a
+			// server that 500s every MCP call.
+			return CivicMCP.readiness(env, "civic");
+		}
+
 		// Handle standard MCP requests
 		if (url.pathname.startsWith("/mcp")) {
 			// Docs are for humans only. An MCP client opens GET /mcp as its SSE
