@@ -8,6 +8,7 @@ import { GraphQLTool, type GraphQLToolConfig, type CivicEnv } from "./tools/grap
 import { SQLTool, type SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
 import { registerCodeMode, CIVIC_SOURCE } from "./tools/code-mode.js";
+import { RevisionsTool, revisionsInputSchema } from "./tools/revisions-tool.js";
 // CIViC: Clinical Interpretation of Variants in Cancer
 // Uses GraphQL API at graphql.civicdb.org
 // Powered by the CIViC knowledgebase (civicdb.org)
@@ -166,6 +167,17 @@ export class CivicMCP extends StatelessMcpWorker {
 			},
 			async ({ data_access_id, sql, params }) => {
 				return await this.sqlTool.execute({ data_access_id, sql, params }, this.env as unknown as CivicEnv);
+			}
+		);
+
+		// Tool #3: revision history + moderation events (curation-error signal)
+		const revisionsTool = new RevisionsTool(this.graphqlClient);
+		this.server.tool(
+			"civic_revisions",
+			"Get the revision history and moderation events for a CIViC evidence item (what expert curators changed and why), or list recently SUBMITTED/ACCEPTED/REJECTED evidence items. Revisions are the ground truth of curation corrections — use them to see how an entry evolved or to find entries awaiting review.",
+			revisionsInputSchema,
+			async (params) => {
+				return await revisionsTool.execute(params);
 			}
 		);
 
