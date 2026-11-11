@@ -9,6 +9,8 @@ import { SQLTool, type SQLToolConfig } from "./tools/sql-tool.js";
 import { registerCivicPrompts } from "./prompts/civic-tool-prompts.js";
 import { registerCodeMode, CIVIC_SOURCE } from "./tools/code-mode.js";
 import { RevisionsTool, revisionsInputSchema } from "./tools/revisions-tool.js";
+import { civicResponse } from "./utils/tool-result.js";
+import { registerStagedData } from "./tools/staged-data.js";
 // CIViC: Clinical Interpretation of Variants in Cancer
 // Uses GraphQL API at graphql.civicdb.org
 // Powered by the CIViC knowledgebase (civicdb.org)
@@ -109,9 +111,7 @@ export class CivicMCP extends StatelessMcpWorker {
 	private graphqlTool!: GraphQLTool;
 	private sqlTool!: SQLTool;
 
-	async init() {
-
-		configureCitationSigning(this.env);
+	private initializeTools() {
 		// Initialize GraphQL client and tools
 		const graphqlConfig: GraphQLClientConfig = {
 			endpoint: API_CONFIG.endpoint,
@@ -143,44 +143,48 @@ export class CivicMCP extends StatelessMcpWorker {
 			} as SQLToolConfig
 		);
 
+	}
+
+	async init() {
+
+		configureCitationSigning(this.env);
+		this.initializeTools();
+
 		// Tool #1: GraphQL to SQLite staging
-		this.server.tool(
-			API_CONFIG.tools.graphql.name,
+		for (const name of [API_CONFIG.tools.graphql.name, `mcp_${API_CONFIG.tools.graphql.name}`]) this.server.tool(
+			name,
 			API_CONFIG.tools.graphql.description,
 			{
 				query: z.string().describe("GraphQL query string"),
 				variables: z.record(z.string(), z.unknown()).optional().describe("Optional variables for the GraphQL query"),
 			},
-			async ({ query, variables }) => {
-				return await this.graphqlTool.execute({ query, variables }, this.env as unknown as CivicEnv);
-			}
+			async ({ query, variables }, extra) => civicResponse(
+				() => this.graphqlTool.execute({ query, variables }, this.env as unknown as CivicEnv, extra), this.env as unknown as CivicEnv, name, extra)
 		);
 
 		// Tool #2: SQL querying against staged data
-		this.server.tool(
-			API_CONFIG.tools.sql.name,
+		for (const name of [API_CONFIG.tools.sql.name, `mcp_${API_CONFIG.tools.sql.name}`]) this.server.tool(
+			name,
 			API_CONFIG.tools.sql.description,
 			{
 				data_access_id: z.string().describe("Data access ID from the GraphQL query tool"),
 				sql: z.string().describe("SQL SELECT query to execute"),
 				params: z.array(z.string()).optional().describe("Optional query parameters"),
 			},
-			async ({ data_access_id, sql, params }) => {
-				return await this.sqlTool.execute({ data_access_id, sql, params }, this.env as unknown as CivicEnv);
-			}
+			async ({ data_access_id, sql, params }, extra) => civicResponse(
+				() => this.sqlTool.execute({ data_access_id, sql, params }, this.env as unknown as CivicEnv), this.env as unknown as CivicEnv, name, extra)
 		);
 
 		// Tool #3: revision history + moderation events (curation-error signal)
 		const revisionsTool = new RevisionsTool(this.graphqlClient);
-		this.server.tool(
-			"civic_revisions",
+		for (const name of ["civic_revisions", "mcp_civic_revisions"]) this.server.tool(
+			name,
 			"Get the revision history and moderation events for a CIViC evidence item (what expert curators changed and why), or list recently SUBMITTED/ACCEPTED/REJECTED evidence items. Revisions are the ground truth of curation corrections — use them to see how an entry evolved or to find entries awaiting review.",
 			revisionsInputSchema,
-			async (params) => {
-				return await revisionsTool.execute(params);
-			}
+			async (params, extra) => civicResponse(() => revisionsTool.execute(params), this.env as unknown as CivicEnv, name, extra)
 		);
 
+		registerStagedData(this.server, this.env as unknown as CivicEnv);
 		// Register MCP Prompts that guide LLM to use civic_graphql_query
 		registerCivicPrompts(this.server);
 

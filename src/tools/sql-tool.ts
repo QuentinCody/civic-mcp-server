@@ -54,7 +54,7 @@ export class SQLTool {
     async execute(params: { data_access_id: string; sql: string; params?: string[] }, env: CivicEnv) {
         const startTime = Date.now();
         try {
-            const queryResult = await this.executeSQLQuery(params.data_access_id, params.sql, env);
+            const queryResult = await this.executeSQLQuery(params.data_access_id, params.sql, env, params.params);
             const executionTime = Date.now() - startTime;
             
             return { 
@@ -62,6 +62,8 @@ export class SQLTool {
                     type: "text" as const, 
                     text: JSON.stringify(queryResult)
                 }],
+                structuredContent: {success: queryResult.success !== false, data: queryResult},
+                ...(queryResult.success === false ? {isError: true} : {}),
                 _meta: {
                     data_access_id: params.data_access_id,
                     query_type: queryResult.query_type || "select",
@@ -79,7 +81,7 @@ export class SQLTool {
         }
     }
 
-    private async executeSQLQuery(dataAccessId: string, sql: string, env: CivicEnv): Promise<SQLQueryResult> {
+    private async executeSQLQuery(dataAccessId: string, sql: string, env: CivicEnv, params?: string[]): Promise<SQLQueryResult> {
         if (!env?.JSON_TO_SQL_DO) {
             throw new Error("JSON_TO_SQL_DO binding not available");
         }
@@ -88,10 +90,10 @@ export class SQLTool {
         const stub = env.JSON_TO_SQL_DO.get(doId);
         
         // Use enhanced SQL execution that automatically resolves chunked content
-        const response = await stub.fetch("http://do/query-enhanced", {
+        const response = await stub.fetch(params?.length ? "http://do/query-bound" : "http://do/query-enhanced", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sql })
+            body: JSON.stringify({ sql, params })
         });
         
         if (!response.ok) {

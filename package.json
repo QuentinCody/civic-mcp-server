@@ -11,6 +11,7 @@
     "lint:fix": "biome lint --fix",
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
+    "type-check": "npm run cf-typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },

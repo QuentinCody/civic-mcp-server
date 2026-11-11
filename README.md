@@ -114,6 +114,100 @@ Once configured, restart Claude Desktop. The server provides three main tools:
 
 ## Prompts
 
+### Molecular profile workflows in Code Mode
+
+`civic_execute` now includes `civic.profiles`, `civic.profile`, `civic.evidence`,
+`civic.assertions` and `civic.assertionEvidence` alongside arbitrary `gql.query()`.
+These use the existing [CIViC GraphQL API](https://griffithlab.github.io/civic-v2/).
+They are workflow additions, not a claim that new endpoints were released.
+
+Discover candidates first:
+
+```js
+return await civic.profiles({name: "BRAF", first: 10});
+```
+
+The name search is a prefix/alias match. Review all candidates and page through
+`pageInfo` before choosing a profile ID. A feature or variant match does not mean
+the whole molecular profile matches a sample. Use `civic.profile(id)` to inspect
+the complete `rawName`, ordered `parsedName`, `isComplex`, `isMultiVariant` and
+variant membership. Preserve Boolean operators, negation and parentheses. The
+helper retains Gene, Factor, Fusion and Region feature types, and region ISCN
+notation, without converting every feature into a gene.
+
+Then query evidence and assertions by that exact ID. Optional `diseaseId` and
+`therapyId` filter each connection without automatic fallback to broader matches:
+
+```js
+// Replace 123 with a profile ID selected after inspecting discovery results.
+const profileId = 123;
+const evidence = await civic.evidence(profileId, {first: 5, status: "ACCEPTED"});
+const assertions = await civic.assertions(profileId, {first: 5, status: "ACCEPTED"});
+return {evidence, assertions};
+```
+
+Evidence underlying a selected assertion is a distinct relationship. Fetch it by
+assertion ID; preserve each evidence row's own molecular profile and disease even
+when they differ from the assertion. This helper defaults to `ALL` moderation
+statuses so its linked evidence is not silently hidden. The other evidence and
+assertion helpers default to `ACCEPTED`.
+
+<!-- civic-assertion-evidence-example -->
+```js
+// Replace 456 with an assertion ID selected from the preceding results.
+const assertionId = 456;
+const options = {first: 5, after: null, status: "ALL"};
+const result = await civic.assertionEvidence(assertionId, options);
+if (result.__staged || result.__errors) return result;
+return {...result, next: result.evidenceItems.pageInfo.hasNextPage
+  ? {assertionId, options: {...options, after: result.evidenceItems.pageInfo.endCursor}}
+  : null};
+```
+<!-- /civic-assertion-evidence-example -->
+
+Each connection has its own cursor and filtered total. Page sizes are 1–50; pass
+the unchanged filters and returned cursor explicitly. No helper downloads all
+pages or silently selects the first profile. Source citations/retraction state,
+moderation status, flagged/deprecated state, evidence direction/level/rating,
+assertion AMP level, variant origin and therapy interaction types are retained.
+A list of therapies is not automatically a combination treatment.
+
+The existing 1KiB staging setting still applies, with an explicit UTF-8 check at
+30KiB for helper results. Staged handles are not entity objects: return the handle
+or inspect it through `api.query`/result tools before reading fields. The complete
+response, including partial GraphQL errors and pagination, is retained in storage.
+`_workflow` records the request and retrieval timestamp; CIViC's current API is
+not an immutable historical-release selector. Reads stop at 8MB/30 seconds with
+an explicit error so callers can narrow a request.
+
+The focused tests check provider-documented fields/arguments and leaf fragments,
+execute the recipe through the real shared GraphQL/staging proxies with fixture
+storage, and exercise malformed responses, ambiguous matches and pagination.
+The checked-in `civic-schema.graphql` predates Region support; the selected-field
+fixture records the current documentation. Separate live acceptance on September
+30, 2026 verified Gene, Factor, Fusion and Region profiles, AND/OR/parenthesized
+expressions, independent evidence/assertion pagination, and disease/therapy
+filters. All 19 evidence IDs retrieved for assertion 101 matched its native
+linked-evidence list. Negation, cross-profile differences and retracted-source
+cases retain fixture coverage; these selected live samples do not cover every
+possible profile or evidence combination.
+
+The legacy GraphQL, SQL and revision tools return both MCP response fields and
+mark errors explicitly. Full responses over 30 KiB are staged with `_staging`;
+`civic_get_schema` and `civic_query_data` (also available with the `mcp_` prefix)
+inspect and query them. The `payloads` table preserves the original response.
+Standard `query_data` returns rows, while legacy `civic_query_sql` retains its
+native `results` shape. Its optional `params` use native SQLite bindings on a
+bounded, read-only route; that route does not expand chunk references. Live
+acceptance recovered a 39,984-byte evidence response and a 60,000-character SQL
+result exactly. These changes are locally verified; deployment remains pending.
+
+```bash
+pnpm exec vitest run servers/civic-mcp-server/src/utils
+```
+
+### Existing prompts
+
 This server exposes three MCP Prompts that guide the model to use the `civic_graphql_query` tool with correct GraphQL syntax and robust search strategies:
 
 ### Individual Data Type Prompts
@@ -166,3 +260,13 @@ This optimization makes the server more efficient and provides better error visi
 ## License
 
 MIT License with Academic Citation Requirement - see [LICENSE.md](LICENSE.md)
+
+<!-- license-and-data-terms:start -->
+## License and data terms
+
+The code in this repository is licensed under the Apache License 2.0 (see `LICENSE`).
+If you use it in your work, please cite it (see `CITATION.cff`). Citation is requested, not required.
+
+The license covers the code only. Data that this server returns comes from CIViC and stays under the terms of that source: CC0.
+You are responsible for your use of the data under those terms.
+<!-- license-and-data-terms:end -->
