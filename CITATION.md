@@ -22,4 +22,4 @@ Cody, Q. (2025). Civic Mcp Server: A Model Context Protocol Server for Clinical 
 
 This software is licensed under the MIT License with an Academic Citation Requirement. See the LICENSE.md file for details.
 
-For questions regarding citation, please contact QuentinCody@gmail.com.
+For questions regarding citation, please contact support@quentincody.dev.
