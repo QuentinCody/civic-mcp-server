@@ -93,9 +93,6 @@ Use introspection { __type(name: "Query") { fields { name args { name type { nam
 	}
 };
 
-// In-memory cache of staged datasets — lost on Worker eviction/restart.
-// Not durable; only used for convenience lookups during a single instance lifecycle.
-const datasetRegistry = new Map<string, { created: string; table_count?: number; total_rows?: number }>();
 
 // ========================================
 // CORE MCP SERVER CLASS
@@ -128,7 +125,7 @@ export class CivicMCP extends StatelessMcpWorker {
 				stagingThresholdBytes: API_CONFIG.stagingThresholdBytes,
 				annotations: API_CONFIG.tools.graphql.annotations
 			} as GraphQLToolConfig,
-			datasetRegistry,
+			new Map(),
 			// Verifiable provenance: tag civic_graphql_query results with
 			// _meta.citation so passthrough queries appear in the Sources strip.
 			CIVIC_SOURCE
